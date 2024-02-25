@@ -69,24 +69,21 @@ def argparser():
     parser.add_argument(
         "--model",
         type=str,
-        help="OPT model to load; pass `facebook/opt-125m`.",
-        choices=[
-            # OPT models
-            "facebook/opt-125m",
-            "facebook/opt-1.3b",
-            "facebook/opt-2.7b",
-            "facebook/opt-6.7b",
-            "facebook/opt-13b",
-            "facebook/opt-30b",
-            "facebook/opt-66b",
-            # LLAMA 2 Models
-            'meta-llama/Llama-2-7b-hf',
-            'meta-llama/Llama-2-13b-hf',
-            'meta-llama/Llama-2-70b-hf',
-            # Phi-2 model
-            'microsoft/phi-2',
-        ],
         default="facebook/opt-125m",
+        help="Model to load",
+    )
+    path_group = parser.add_mutually_exclusive_group()
+    path_group.add_argument(
+        "--model-path",
+        type=str,
+        default=None,
+        help="Path to load the model and tokenizer from (required for local models, not required for HF models)",
+    )
+    path_group.add_argument(
+        "--sliced-model-path",
+        type=str,
+        help="Path to load the model to fine-tune (sliced) and tokenizer from",
+        default=None,
     )
     parser.add_argument("--dtype", type=str, help="Data type to use.", choices=["fp32", "fp16"], default="fp16")
     parser.add_argument("--varied-seqlen", action="store_true", help="Varied sequence lengths in the calibration data.")
@@ -107,12 +104,9 @@ def argparser():
     )
 
     parser.add_argument("--save-dir", type=str, default=None, help="Path to save the model.")
-    parser.add_argument(
-        "--load-model-path", type=str, default=None, required=True, help="Path to load the sliced model from."
-    )
     parser.add_argument('--hf-token', type=str, default=os.getenv('HF_TOKEN', None))
 
-    parser.add_argument('--wandb-project', type=str, default="slicegpt-finetuning")
+    parser.add_argument('--wandb-project', type=str, default="slicegpt-finetuning", help="wandb project name.")
     parser.add_argument('--no-wandb', action="store_true", help="Disable wandb.")
     parser.add_argument(
         '--device',
@@ -239,16 +233,20 @@ def main() -> None:
         logging.info(f'Failed to initialize wandb: {e}, continuing without wandb')
         wandb.init(project=args.wandb_project, mode='disabled')
 
-    if args.load_model_path:
+    if args.sliced_model_path:
         # load the sliced model
-        logging.info(f"Loading sliced {args.model} model from {args.load_model_path} with sparsity {args.sparsity}")
+        logging.info(f"Loading sliced {args.model} model from {args.sliced_model_path} with sparsity {args.sparsity}")
         model_adapter, tokenizer = hf_utils.load_sliced_model(
-            args.model, args.load_model_path, args.sparsity, token=args.hf_token, round_interval=args.round_interval
+            args.model,
+            args.sliced_model_path,
+            sparsity=args.sparsity,
+            token=args.hf_token,
+            round_interval=args.round_interval,
         )
     else:
         # load the original model
         logging.info(f"Loading {args.model} model")
-        model_adapter, tokenizer = hf_utils.get_model_and_tokenizer(args.model, token=args.hf_token)
+        model_adapter, tokenizer = hf_utils.get_model_and_tokenizer(args.model, args.model_path, token=args.hf_token)
 
     # get the dataset for perplexity evaluation
     ppl_ds = data_utils.get_dataset(args.ppl_eval_dataset)
@@ -268,7 +266,7 @@ def main() -> None:
         model_adapter.model.to(config.device)
 
     # compute perplexity before finetuning
-    dataset_ppl = gpu_utils.evaluate_ppl(model_adapter, ppl_eval_loader)
+    dataset_ppl = gpu_utils.evaluate_ppl(model_adapter.model, model_adapter.model.config.pad_token_id, ppl_eval_loader)
     logging.info(f'PPL before finetuning: {dataset_ppl:.4f}')
     wandb.log({"pre_finetune_ppl": dataset_ppl})
 
@@ -304,11 +302,11 @@ def main() -> None:
     )
 
     model = model_adapter.model
-    model = get_peft_model(model, lora_config)
-    model.print_trainable_parameters()
+    lora_model = get_peft_model(model, lora_config)
+    lora_model.print_trainable_parameters()
 
     # create optimizer and scheduler
-    optimizer, lr_scheduler = get_optimizer_and_scheduler(model, finetune_ds["train"], args)
+    optimizer, lr_scheduler = get_optimizer_and_scheduler(lora_model, finetune_ds["train"], args)
 
     training_args = TrainingArguments(
         output_dir=args.st_checkpoint_dir,  # output directory
@@ -328,7 +326,7 @@ def main() -> None:
     )
 
     trainer = CustomTrainer(
-        model=model,
+        model=lora_model,
         tokenizer=tokenizer,
         train_loader=finetune_train_loader,
         test_loader=finetune_test_loader,
@@ -338,9 +336,9 @@ def main() -> None:
     )
 
     # required to enable gradient_checkpointing
-    model.enable_input_require_grads()
+    lora_model.enable_input_require_grads()
 
-    model.train()
+    lora_model.train()
     trainer.train()
 
     if args.save_dir:
@@ -350,7 +348,7 @@ def main() -> None:
         model_file = os.path.join(args.save_dir, os.path.basename(args.model) + "_" + str(args.sparsity) + ".pt")
 
         # save peft model as a standard pt model
-        merged_model = model.merge_and_unload()
+        merged_model = lora_model.merge_and_unload()
 
         torch.save(merged_model.state_dict(), model_file)
         logging.info(f"Saved sliced and finetuned model to {args.save_dir}")
@@ -358,7 +356,7 @@ def main() -> None:
     utils.cleanup_memory()
 
     # compute perplexity after finetuning
-    dataset_ppl = gpu_utils.evaluate_ppl(model, ppl_eval_loader)
+    dataset_ppl = gpu_utils.evaluate_ppl(lora_model, model.config.pad_token_id, ppl_eval_loader)
     logging.info(f'PPL after finetuning: {dataset_ppl:.4f}')
     wandb.log({"post_finetune_ppl": dataset_ppl})
 
