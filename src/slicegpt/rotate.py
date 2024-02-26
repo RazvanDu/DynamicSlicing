@@ -155,6 +155,7 @@ def rotate_and_slice(
     """
     Rotate and slice a model, with interleaved slicing and PCA calculations
     """
+    print(f"Model adapter paralel blocks: {model_adapter.parallel_blocks}")
     if model_adapter.parallel_blocks:
         rotate_and_slice_parallel(model_adapter, dataloader, slicing_scheduler, apply_mask, final_orientation)
     else:
@@ -176,6 +177,8 @@ def rotate_and_slice_sequential(
     """
     model_adapter.model.eval()
     dtype = next(iter(model_adapter.model.parameters())).dtype
+
+    print("serial channel computations\n\n\n")
 
     inps, args, kwargs, ignore_masks = [], [], [], []
     for batch in dataloader:
@@ -202,7 +205,7 @@ def rotate_and_slice_sequential(
     for idx, layer_adapter in enumerate(tqdm(layers, unit="layer", desc="Rotating and slicing")):
 
         ##
-        print(idx)
+        print(idx, "Hallo")
         layer = layer_adapter.layer
         layer.attn_shortcut_Q = nn.Parameter(Q.T.clone().to(dtype=dtype))
 
@@ -308,6 +311,7 @@ def rotate_and_slice_parallel(
 
     #generate the new dimension matrix
     new_dimensions = slicing_vector_generation(len(layers), model_adapter.hidden_size)
+    print(f"The dimensions will be:{new_dimensions}" )
 
 
 
@@ -332,7 +336,7 @@ def rotate_and_slice_parallel(
     for idx, layer_adapter in enumerate(tqdm(layers, unit="layer", desc="Rotating and slicing")):
 
         #
-        print(idx)
+        print(idx, "Helloho")
         new_imp_emb_dimension = new_dimensions[idx]
         new_out_emb_dimension = new_dimensions[idx + 1]
         """
@@ -490,6 +494,7 @@ def slice_rotated_model(model_adapter: ModelAdapter, slicing_scheduler: SlicingS
     """
     model_adapter.model.eval()
     layers = model_adapter.get_layers()
+
     if not slicing_scheduler:
         print("No Slicing Scheduler")
         if model_adapter.slicing_conf.const_dimension is not None:
@@ -511,6 +516,8 @@ def slice_rotated_model(model_adapter: ModelAdapter, slicing_scheduler: SlicingS
         layer = layer_adapter.layer
         # slice attn weights 2nd dim, attn shortcut 1st dim
         slice_attention_inputs(layer_adapter, slicing_scheduler.get_attention_input_dimension(i))
+
+        print("Slicing Layers and embedingsssssss", i)
 
         # slice mlp input 2nd dimension
         slice_mlp_input(layer_adapter, slicing_scheduler.get_mlp_input_dimension(i))
