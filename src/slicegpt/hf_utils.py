@@ -81,12 +81,16 @@ def get_model_and_tokenizer(
     if not local_model:
         model_path = model_name
 
+    print(f"Final path is, path is {local_model}")
+
     logging.info(
         f"Loading %s config %s from %s",
         model_name,
         "and model weights" if not uninitialized else "",
         model_path if local_model else 'Hugging Face',
     )
+
+
 
     model_adapter = ModelAdapter.from_model(
         model_name,
@@ -96,6 +100,8 @@ def get_model_and_tokenizer(
         local_files_only=local_model,
         token=token,
     )
+
+
 
     model = model_adapter.model
     model.seqlen = model.config.max_position_embeddings
