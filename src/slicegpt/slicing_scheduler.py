@@ -59,7 +59,7 @@ class SlicingScheduler(ABC):
         self.slicing_conf.embedding_dimensions[second_key] = second_dim  # Assign the new dimension to the second key
 
         # Print the new embedding dimensions for confirmation
-        #print(f"\nnew emb dimension: {self.slicing_conf.embedding_dimensions}")
+        print(f"\new emb dimension: {self.slicing_conf.embedding_dimensions}")
 
     @final
     def get_embedding_dimensions(self) -> dict[int, int]:

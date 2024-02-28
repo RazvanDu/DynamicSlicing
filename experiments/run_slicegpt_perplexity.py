@@ -236,7 +236,10 @@ def main() -> None:
     )
 
     scheduler = ConstSlicingScheduler(new_embedding_dimension)
+    print("Rotate and slice lol")
     rotate.rotate_and_slice(model_adapter, train_loader, scheduler, final_orientation=args.final_orientation)
+
+
 
     if args.save_dir:
         sliced_model_dir = pathlib.Path(args.save_dir)

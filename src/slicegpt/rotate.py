@@ -155,10 +155,12 @@ def rotate_and_slice(
     """
     Rotate and slice a model, with interleaved slicing and PCA calculations
     """
-    print(f"Model adapter paralel blocks: {model_adapter.parallel_blocks}")
+    print("\n\nrotate and slice func")
     if model_adapter.parallel_blocks:
+        print("\n\nparal branch")
         rotate_and_slice_parallel(model_adapter, dataloader, slicing_scheduler, apply_mask, final_orientation)
     else:
+        print("\n\nseq branch")
         rotate_and_slice_sequential(model_adapter, dataloader, slicing_scheduler, apply_mask, final_orientation)
 
 
@@ -205,7 +207,8 @@ def rotate_and_slice_sequential(
     for idx, layer_adapter in enumerate(tqdm(layers, unit="layer", desc="Rotating and slicing")):
 
         ##
-        print(idx, "Hallo")
+        print(idx)
+        print("Hallo1")
         layer = layer_adapter.layer
         layer.attn_shortcut_Q = nn.Parameter(Q.T.clone().to(dtype=dtype))
 
@@ -336,7 +339,8 @@ def rotate_and_slice_parallel(
     for idx, layer_adapter in enumerate(tqdm(layers, unit="layer", desc="Rotating and slicing")):
 
         #
-        print(idx, "Helloho")
+        print(idx)
+        print("Helo2")
         new_imp_emb_dimension = new_dimensions[idx]
         new_out_emb_dimension = new_dimensions[idx + 1]
         """
@@ -517,7 +521,8 @@ def slice_rotated_model(model_adapter: ModelAdapter, slicing_scheduler: SlicingS
         # slice attn weights 2nd dim, attn shortcut 1st dim
         slice_attention_inputs(layer_adapter, slicing_scheduler.get_attention_input_dimension(i))
 
-        print("Slicing Layers and embedingsssssss", i)
+        print(i)
+        print("Helo3")
 
         # slice mlp input 2nd dimension
         slice_mlp_input(layer_adapter, slicing_scheduler.get_mlp_input_dimension(i))
