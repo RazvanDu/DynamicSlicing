@@ -179,8 +179,8 @@ def rotate_and_slice_sequential(
     """
     model_adapter.model.eval()
     dtype = next(iter(model_adapter.model.parameters())).dtype
-
-    print("serial channel computations\n\n\n")
+    new_dimensions = slicing_vector_generation(len(model_adapter.get_layers()), model_adapter.hidden_size)
+    print(f"The dimensions will be:{new_dimensions}")
 
     inps, args, kwargs, ignore_masks = [], [], [], []
     for batch in dataloader:
@@ -201,7 +201,10 @@ def rotate_and_slice_sequential(
         R = random_orthogonal_upper_left(Q.shape[0], slicing_scheduler.get_embedding_dimensions()[0])
         Q = Q @ R.to(Q.device)
     rotate_embeddings(model_adapter, Q)
-    slice_embeddings(model_adapter, slicing_scheduler.get_embedding_dimensions())
+
+    slice_embeddings2(model_adapter, new_dimensions)
+
+    #slice_embeddings(model_adapter, slicing_scheduler.get_embedding_dimensions())
 
     logging.info("Rotate and slice layers")
     for idx, layer_adapter in enumerate(tqdm(layers, unit="layer", desc="Rotating and slicing")):
@@ -209,18 +212,22 @@ def rotate_and_slice_sequential(
         ##
         print(idx)
         print("Hallo1")
+
+        new_imp_emb_dimension = new_dimensions[idx]
+        new_out_emb_dimension = new_dimensions[idx + 1]
+
         layer = layer_adapter.layer
         layer.attn_shortcut_Q = nn.Parameter(Q.T.clone().to(dtype=dtype))
 
         # rotate and slice the attention inputs to match previous layer
         rotate_attention_inputs(layer_adapter, Q)
-        slice_attention_inputs(layer_adapter, slicing_scheduler.get_attention_input_dimension(idx))
+        slice_attention_inputs(layer_adapter, int(new_imp_emb_dimension)) #slicing_scheduler.get_attention_input_dimension(idx))
 
         # get signal between attention and mlp, rotate and slice
         for i, inp in enumerate(inps):
             args[i] = layer_adapter.get_updated_args(
                 torch.matmul(inp.to(device=config.device), Q.to(dtype=dtype))[
-                    :, :, : slicing_scheduler.get_attention_input_dimension(idx)
+                    :, :, :  int(new_imp_emb_dimension)
                 ].cpu(),
                 args[i],
             )
@@ -230,26 +237,26 @@ def rotate_and_slice_sequential(
         Q = Q.to(device=config.device, dtype=torch.float64)
         if final_orientation == 'random':
             R = random_orthogonal_upper_left(
-                Q.shape[0], slicing_scheduler.get_attention_output_dimension(idx, match_head_dim=False)
+                Q.shape[0], int(new_out_emb_dimension)#slicing_scheduler.get_attention_output_dimension(idx, match_head_dim=False)
             )
             Q = Q @ R.to(Q.device)
 
         layer.attn_shortcut_Q = nn.Parameter(
             torch.matmul(
                 layer.attn_shortcut_Q,
-                Q.to(dtype=dtype)[:, : slicing_scheduler.get_attention_output_dimension(idx, match_head_dim=False)],
+                Q.to(dtype=dtype)[:, : int(new_out_emb_dimension)]#slicing_scheduler.get_attention_output_dimension(idx, match_head_dim=False)],
             )
         )
         rotate_attention_output(layer_adapter, Q)
         slice_attention_output(
-            layer_adapter, slicing_scheduler.get_attention_output_dimension(idx, match_head_dim=False)
+            layer_adapter, int(new_out_emb_dimension) #slicing_scheduler.get_attention_output_dimension(idx, match_head_dim=False)
         )
 
         layer.mlp_shortcut_Q = nn.Parameter(
-            Q.T.clone().to(dtype=dtype)[: slicing_scheduler.get_mlp_input_dimension(idx), :]
+            Q.T.clone().to(dtype=dtype)[: int(new_imp_emb_dimension)] #slicing_scheduler.get_mlp_input_dimension(idx), :]
         )
         rotate_mlp_input(layer_adapter, Q)
-        slice_mlp_input(layer_adapter, slicing_scheduler.get_mlp_input_dimension(idx))
+        slice_mlp_input(layer_adapter, int(new_imp_emb_dimension)) # slicing_scheduler.get_mlp_input_dimension(idx))
 
         # Run GC and cleanup GPU memory
         cleanup_memory()
@@ -259,15 +266,15 @@ def rotate_and_slice_sequential(
         _, inps = get_signals(layer_adapter, args, kwargs)
         eig_val, Q = pca_calc(inps, ignore_masks)
         if final_orientation == 'random':
-            R = random_orthogonal_upper_left(Q.shape[0], slicing_scheduler.get_mlp_output_dimension(idx))
+            R = random_orthogonal_upper_left(Q.shape[0], int(new_imp_emb_dimension))#slicing_scheduler.get_mlp_output_dimension(idx))
             Q = Q @ R.to(Q.device)
 
         layer.mlp_shortcut_Q = nn.Parameter(torch.matmul(layer.mlp_shortcut_Q, Q.to(dtype=dtype)))
 
         # optionally slice the mlp/head connection in the last layer
         rotate_mlp_output(layer_adapter, Q)
-        slice_mlp_output(layer_adapter, slicing_scheduler.get_mlp_output_dimension(idx))
-        layer.mlp_shortcut_Q = nn.Parameter(layer.mlp_shortcut_Q[:, : slicing_scheduler.get_mlp_output_dimension(idx)])
+        slice_mlp_output(layer_adapter, int(new_out_emb_dimension))#slicing_scheduler.get_mlp_output_dimension(idx))
+        layer.mlp_shortcut_Q = nn.Parameter(layer.mlp_shortcut_Q[:, : int(new_out_emb_dimension)]) # slicing_scheduler.get_mlp_output_dimension(idx)])
 
         layer.to('cpu')
 
@@ -277,7 +284,7 @@ def rotate_and_slice_sequential(
     # rotate and slice head
     rotate_head(model_adapter, Q)
     if slicing_scheduler.do_slice_head:
-        slice_head(model_adapter, slicing_scheduler.get_head_dimension())
+        slice_head(model_adapter, new_dimensions[-1])#slicing_scheduler.get_head_dimension())
 
     # update model's slicing config
     model_adapter.slicing_conf = slicing_scheduler.slicing_conf.clone()

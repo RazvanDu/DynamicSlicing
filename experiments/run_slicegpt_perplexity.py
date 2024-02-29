@@ -1,9 +1,12 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
+import os
+os.environ["WANDB_SERVICE_WAIT"] = "300"
+os.environ['TRANSFORMERS_CACHE'] = '/storage/paulclotan/SmartSliceGPT/models'
+
 import argparse
 import logging
-import os
 import pathlib
 import shutil
 
@@ -14,10 +17,9 @@ from slicegpt import data_utils, gpu_utils, hf_utils, layernorm_fusion, rotate, 
 from slicegpt.config import config
 from slicegpt.slicing_scheduler import ConstSlicingScheduler
 
+
+
 utils.configure_logging()
-
-os.environ["WANDB__SERVICE_WAIT"] = "300"
-
 
 def argparser() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -135,6 +137,7 @@ def main() -> None:
     logging.info(f"PyTorch device: {config.device}")
     logging.info(f"Number of available cuda devices: {torch.cuda.device_count()}")
 
+
     try:
         wandb.init(project=args.wandb_project, config=args, mode='disabled' if args.no_wandb else None)
     except wandb.UsageError as e:
@@ -168,6 +171,8 @@ def main() -> None:
         else:
             model.to(config.device)
 
+
+
     dataset = data_utils.get_dataset(args.cal_dataset)
     train_dataset, test_dataset = dataset["train"], dataset["test"]
     train_loader = data_utils.prepare_dataloader(
@@ -200,7 +205,7 @@ def main() -> None:
         model.cpu()
         utils.cleanup_memory()
 
-    # replace modules with compressible equivalents
+
     layernorm_fusion.replace_layers(model_adapter)
 
     # fuse layernorms and add rotations to skip connections
