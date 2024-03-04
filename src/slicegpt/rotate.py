@@ -16,10 +16,25 @@ from .utils import cleanup_memory, map_tensors
 
 
 def slicing_vector_generation(nr_layers, initial_dimension):
+    target_avg_value = initial_dimension * 0.7
+
+    # Initialize the new_dim list
     new_dim = []
-    for n_layer in range(nr_layers + 1):
-        new_dim.append(initial_dimension - ((30 / 100 - (nr_layers - n_layer) / nr_layers * 20 / 100) * initial_dimension))
+
+    # Generate values within ±20% of the target_avg_value
+    for _ in range(nr_layers + 1):
+        # Calculate a random adjustment within ±20% of the target_avg_value
+        adjustment = np.random.uniform(-0.2, 0.2) * target_avg_value
+        # Apply the adjustment to get a new value and ensure it's within the bounds of the initial dimension
+        new_value = np.clip(target_avg_value + adjustment, initial_dimension * 0.8, initial_dimension * 1.2)
+        new_dim.append(new_value)
+
+    print("AVERAGE CUT: ", sum(new_dim)/len(new_dim))
+
+    #for n_layer in range(nr_layers + 1):
+    #    new_dim.append(initial_dimension - ((30 / 100 - (nr_layers - n_layer) / nr_layers * 20 / 100) * initial_dimension))
         #new_dim.append((1-0.20) * initial_dimension)
+
     new_dim = np.array(new_dim).astype('int')
     return new_dim
 
