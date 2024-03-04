@@ -241,7 +241,7 @@ def main() -> None:
     )
 
     scheduler = ConstSlicingScheduler(new_embedding_dimension)
-    print("Rotate and slice lol")
+    logging.info("Rotate and slice lol")
     rotate.rotate_and_slice(model_adapter, train_loader, scheduler, final_orientation=args.final_orientation)
 
 
@@ -275,12 +275,12 @@ def main() -> None:
 
     reset_model_device()
     dataset_ppl = gpu_utils.evaluate_ppl(model, model.config.pad_token_id, test_loader)
-    logging.info(f'After rotating and slicing {dataset_ppl:.4f}')
+    print(f'After rotating and slicing {dataset_ppl:.4f}')
     wandb.log({"sliced_ppl": dataset_ppl})
 
     sliced_param_count = sum(int(p.nelement()) for p in model.parameters())
     sliced_fraction = 1.0 - sliced_param_count / original_param_count
-    logging.info(f'Sliced model parameters: {sliced_param_count:,d} (sliced fraction {sliced_fraction:.4f})')
+    print(f'Sliced model parameters: {sliced_param_count:,d} (sliced fraction {sliced_fraction:.4f})')
 
 
 if __name__ == "__main__":

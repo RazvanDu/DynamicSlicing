@@ -14,29 +14,62 @@ from .model_utils import get_layer0_inputs, get_signals
 from .slicing_scheduler import ConfigSlicingScheduler, ConstSlicingScheduler, SlicingScheduler
 from .utils import cleanup_memory, map_tensors
 
+def adjust_values_to_target_average(values, target_avg):
+    current_avg = np.mean(values)
+    while not np.isclose(current_avg, target_avg, rtol=1e-03):
+
+        random_index = np.random.choice(len(values))
+
+        #print(current_avg, target_avg, random_index)
+
+        modifier = -1
+
+        if current_avg < target_avg:
+            modifier = 1
+
+        values[random_index] += modifier
+        values[random_index] = np.clip(values[random_index], target_avg * 0.8, target_avg * 1.2)
+
+        current_avg = np.mean(values)
+
+    return values
 
 def slicing_vector_generation(nr_layers, initial_dimension):
-    target_avg_value = initial_dimension * 0.7
+    target_avg_value = initial_dimension * 0.7  # 30% reduction target
+
+    # Generate initial values randomly within ±20% of the initial dimension
+    new_dim = np.random.uniform(0.8, 1.2, nr_layers + 1) * target_avg_value
+
+    # Adjust the generated values to ensure the average is exactly as required
+    new_dim_adjusted = adjust_values_to_target_average(new_dim, target_avg_value)
+
+    # Ensure the array contains integers
+    new_dim_adjusted = np.round(new_dim_adjusted).astype(int)
+
+    return new_dim_adjusted
+
+#def slicing_vector_generation(nr_layers, initial_dimension):
+#    target_avg_value = initial_dimension * 0.7
 
     # Initialize the new_dim list
-    new_dim = []
+   # new_dim = []
 
     # Generate values within ±20% of the target_avg_value
-    for _ in range(nr_layers + 1):
-        # Calculate a random adjustment within ±20% of the target_avg_value
-        adjustment = np.random.uniform(-0.2, 0.2) * target_avg_value
-        # Apply the adjustment to get a new value and ensure it's within the bounds of the initial dimension
-        new_value = np.clip(target_avg_value + adjustment, initial_dimension * 0.8, initial_dimension * 1.2)
-        new_dim.append(new_value)
+    #for _ in range(nr_layers + 1):
+    #    # Calculate a random adjustment within ±20% of the target_avg_value
+    #    adjustment = np.random.uniform(-0.2, 0.2) * target_avg_value
+    #    # Apply the adjustment to get a new value and ensure it's within the bounds of the initial dimension
+    #    #new_value = np.clip(target_avg_value + adjustment, initial_dimension * 0.8, initial_dimension * 1.2)
+    #    new_dim.append(target_avg_value + adjustment)
 
-    print("AVERAGE CUT: ", sum(new_dim)/len(new_dim))
+    #print("AVERAGE CUT: ", sum(new_dim)/len(new_dim))
 
     #for n_layer in range(nr_layers + 1):
     #    new_dim.append(initial_dimension - ((30 / 100 - (nr_layers - n_layer) / nr_layers * 20 / 100) * initial_dimension))
         #new_dim.append((1-0.20) * initial_dimension)
 
-    new_dim = np.array(new_dim).astype('int')
-    return new_dim
+    #new_dim = np.array(new_dim).astype('int')
+    #return new_dim
 
 
 def rotate_attention_inputs(layer_adapter: LayerAdapter, Q: torch.Tensor) -> None:
@@ -50,7 +83,7 @@ def rotate_attention_inputs(layer_adapter: LayerAdapter, Q: torch.Tensor) -> Non
 def slice_attention_inputs(layer_adapter: LayerAdapter, new_embedding_dimension: int) -> None:
     # Slice the WQ, WK and WV matrices of the self-attention layer.
     layer_nr = 0
-    print(f"slice_attention_inputs {new_embedding_dimension}")
+    logging.info(f"slice_attention_inputs {new_embedding_dimension}")
     for W in layer_adapter.get_attention_inputs():
         W.weight.data = W.weight.data[:, :new_embedding_dimension]
         W.in_features = new_embedding_dimension
@@ -72,7 +105,7 @@ def rotate_attention_output(layer_adapter: LayerAdapter, Q: torch.Tensor) -> Non
 
 def slice_attention_output(layer_adapter: LayerAdapter, new_embedding_dimension: int) -> None:
     # Slice output matrix of the self-attention layer.
-    print(f"slice_attention_output {new_embedding_dimension}")
+    logging.info(f"slice_attention_output {new_embedding_dimension}")
     W = layer_adapter.get_attention_output()
     W.weight.data = W.weight.data[:new_embedding_dimension, :]
     if W.bias is not None:
@@ -90,7 +123,7 @@ def rotate_mlp_input(layer_adapter: LayerAdapter, Q: torch.Tensor) -> None:
 
 def slice_mlp_input(layer_adapter: LayerAdapter, new_embedding_dimension: int) -> None:
     # Slice the MLP input weights.
-    print(f"sslice_mlp_input {new_embedding_dimension}")
+    logging.info(f"sslice_mlp_input {new_embedding_dimension}")
     for W in layer_adapter.get_mlp_inputs():
         W.weight.data = W.weight.data[:, :new_embedding_dimension]
         W.in_features = new_embedding_dimension
@@ -110,7 +143,7 @@ def rotate_mlp_output(layer_adapter: LayerAdapter, Q: torch.Tensor) -> None:
 def slice_mlp_output(layer_adapter: LayerAdapter, new_embedding_dimension: int) -> None:
     # Slice the MLP output weights and bias.
     W = layer_adapter.get_mlp_output()
-    print(f"slice_mlp_output {new_embedding_dimension}")
+    logging.info(f"slice_mlp_output {new_embedding_dimension}")
     W.weight.data = W.weight.data[:new_embedding_dimension, :]
     if W.bias is not None:
         W.bias.data = W.bias.data[:new_embedding_dimension]
@@ -129,18 +162,18 @@ def rotate_embeddings(model_adapter: ModelAdapter, Q: torch.Tensor) -> None:
 
 def slice_embeddings2(model_adapter: ModelAdapter, new_embedding_dimensions: np.array) -> None:
     # Slice the embeddings
-    print(f"slice_embeddings {new_embedding_dimensions}")
+    logging.info(f"slice_embeddings {new_embedding_dimensions}")
     for i, W in enumerate(model_adapter.get_embeddings()):
         W.weight.data = W.weight.data[:, : new_embedding_dimensions[i]]
-        print(W.weight.data.shape)
+        logging.info(W.weight.data.shape)
 
 
 def slice_embeddings(model_adapter: ModelAdapter, new_embedding_dimensions: dict[int, int]) -> None:
     # Slice the embeddings
-    print(f"slice_embeddings {new_embedding_dimensions}")
+    logging.info(f"slice_embeddings {new_embedding_dimensions}")
     for i, W in enumerate(model_adapter.get_embeddings()):
         W.weight.data = W.weight.data[:, : new_embedding_dimensions[i]]
-        print(W.weight.data.shape)
+        logging.info(W.weight.data.shape)
 
 
 def rotate_head(model_adapter: ModelAdapter, Q: torch.Tensor) -> None:
@@ -153,7 +186,7 @@ def rotate_head(model_adapter: ModelAdapter, Q: torch.Tensor) -> None:
 
 def slice_head(model_adapter: ModelAdapter, new_embedding_dimension: int) -> None:
     # Slice the head.
-    print(f"slice_head {new_embedding_dimension}")
+    logging.info(f"slice_head {new_embedding_dimension}")
     lm_head = model_adapter.get_lm_head()
     lm_head.weight.data = lm_head.weight.data[:, :new_embedding_dimension]
     lm_head.in_features = new_embedding_dimension
@@ -170,12 +203,12 @@ def rotate_and_slice(
     """
     Rotate and slice a model, with interleaved slicing and PCA calculations
     """
-    print("\n\nrotate and slice func")
+    logging.info("\n\nrotate and slice func")
     if model_adapter.parallel_blocks:
-        print("\n\nparal branch")
+        logging.info("\n\nparal branch")
         rotate_and_slice_parallel(model_adapter, dataloader, slicing_scheduler, apply_mask, final_orientation)
     else:
-        print("\n\nseq branch")
+        logging.info("\n\nseq branch")
         rotate_and_slice_sequential(model_adapter, dataloader, slicing_scheduler, apply_mask, final_orientation)
 
 
@@ -195,7 +228,7 @@ def rotate_and_slice_sequential(
     model_adapter.model.eval()
     dtype = next(iter(model_adapter.model.parameters())).dtype
     new_dimensions = slicing_vector_generation(len(model_adapter.get_layers()), model_adapter.hidden_size)
-    print(f"The dimensions will be:{new_dimensions}")
+    logging.info(f"The dimensions will be:{new_dimensions}")
 
     inps, args, kwargs, ignore_masks = [], [], [], []
     for batch in dataloader:
@@ -218,15 +251,15 @@ def rotate_and_slice_sequential(
     rotate_embeddings(model_adapter, Q)
 
     slice_embeddings2(model_adapter, new_dimensions)
-    print(f"slice_embeddings out {new_dimensions}")
+    logging.info(f"slice_embeddings out {new_dimensions}")
     #slice_embeddings(model_adapter, slicing_scheduler.get_embedding_dimensions())
 
     logging.info("Rotate and slice layers")
     for idx, layer_adapter in enumerate(tqdm(layers, unit="layer", desc="Rotating and slicing")):
 
         ##
-        print(idx)
-        print("Hallo1")
+        logging.info(idx)
+        logging.info("Hallo1")
 
         new_imp_emb_dimension = new_dimensions[idx]
         new_out_emb_dimension = new_dimensions[idx + 1]
@@ -237,11 +270,11 @@ def rotate_and_slice_sequential(
 
         # rotate and slice the attention inputs to match previous layer
         rotate_attention_inputs(layer_adapter, Q)
-        print(f"slice_attention_inputs out {int(new_imp_emb_dimension)}")
+        logging.info(f"slice_attention_inputs out {int(new_imp_emb_dimension)}")
         slice_attention_inputs(layer_adapter, int(new_imp_emb_dimension)) #slicing_scheduler.get_attention_input_dimension(idx))
 
         # get signal between attention and mlp, rotate and slice
-        print(f"inputs between attention and mlp. rorate and slice {int(new_imp_emb_dimension)}")
+        logging.info(f"inputs between attention and mlp. rorate and slice {int(new_imp_emb_dimension)}")
         for i, inp in enumerate(inps):
             args[i] = layer_adapter.get_updated_args(
                 torch.matmul(inp.to(device=config.device), Q.to(dtype=dtype))[
@@ -255,12 +288,12 @@ def rotate_and_slice_sequential(
         Q = Q.to(device=config.device, dtype=torch.float64)
 
         if final_orientation == 'random':
-            print(f"final orientation out {int(new_out_emb_dimension)}")
+            logging.info(f"final orientation out {int(new_out_emb_dimension)}")
             R = random_orthogonal_upper_left(
                 Q.shape[0], int(new_out_emb_dimension)#slicing_scheduler.get_attention_output_dimension(idx, match_head_dim=False)
             )
             Q = Q @ R.to(Q.device)
-        print(f"layer attn shortcut Q out {int(new_out_emb_dimension)}")
+        logging.info(f"layer attn shortcut Q out {int(new_out_emb_dimension)}")
         layer.attn_shortcut_Q = nn.Parameter(
             torch.matmul(
                 layer.attn_shortcut_Q,
@@ -268,18 +301,18 @@ def rotate_and_slice_sequential(
             )
         )
         rotate_attention_output(layer_adapter, Q)
-        print(f"slice attention output out {int(new_out_emb_dimension)}")
+        logging.info(f"slice attention output out {int(new_out_emb_dimension)}")
         slice_attention_output(
             layer_adapter, int(new_out_emb_dimension) #slicing_scheduler.get_attention_output_dimension(idx, match_head_dim=False)
         )
 
-        print(f"layer mlp shortcut Q out {int(new_imp_emb_dimension)} ")
+        logging.info(f"layer mlp shortcut Q out {int(new_imp_emb_dimension)} ")
         layer.mlp_shortcut_Q = nn.Parameter(
             Q.T.clone().to(dtype=dtype)[: int(new_imp_emb_dimension)] #slicing_scheduler.get_mlp_input_dimension(idx), :]
         )
         rotate_mlp_input(layer_adapter, Q)
 
-        print(f"slice mlp input out {int(new_imp_emb_dimension)} ")
+        logging.info(f"slice mlp input out {int(new_imp_emb_dimension)} ")
         slice_mlp_input(layer_adapter, int(new_imp_emb_dimension)) # slicing_scheduler.get_mlp_input_dimension(idx))
 
         # Run GC and cleanup GPU memory
@@ -290,18 +323,18 @@ def rotate_and_slice_sequential(
         _, inps = get_signals(layer_adapter, args, kwargs)
         eig_val, Q = pca_calc(inps, ignore_masks)
         if final_orientation == 'random':
-            print(f"random ort upper out {int(new_out_emb_dimension)} ")
+            logging.info(f"random ort upper out {int(new_out_emb_dimension)} ")
             R = random_orthogonal_upper_left(Q.shape[0], int(new_out_emb_dimension))#slicing_scheduler.get_mlp_output_dimension(idx))
             Q = Q @ R.to(Q.device)
 
-        print(f"layer mlp shorcut Q out {int(new_out_emb_dimension)}")
+        logging.info(f"layer mlp shorcut Q out {int(new_out_emb_dimension)}")
         layer.mlp_shortcut_Q = nn.Parameter(torch.matmul(layer.mlp_shortcut_Q, Q.to(dtype=dtype)))
 
         # optionally slice the mlp/head connection in the last layer
         rotate_mlp_output(layer_adapter, Q)
-        print(f"slice_mlp_output out {int(new_out_emb_dimension)}")
+        logging.info(f"slice_mlp_output out {int(new_out_emb_dimension)}")
         slice_mlp_output(layer_adapter, int(new_out_emb_dimension))#slicing_scheduler.get_mlp_output_dimension(idx))
-        print(f"slice_mlp_output out {int(new_out_emb_dimension)}")
+        logging.info(f"slice_mlp_output out {int(new_out_emb_dimension)}")
         layer.mlp_shortcut_Q = nn.Parameter(layer.mlp_shortcut_Q[:, : int(new_out_emb_dimension)]) # slicing_scheduler.get_mlp_output_dimension(idx)])
 
         layer.to('cpu')
@@ -312,7 +345,7 @@ def rotate_and_slice_sequential(
     # rotate and slice head
     rotate_head(model_adapter, Q)
     if slicing_scheduler.do_slice_head:
-        print(f"slice_mlp_output out {int(new_dimensions[-1])}")
+        logging.info(f"slice_mlp_output out {int(new_dimensions[-1])}")
 
         slice_head(model_adapter, int(new_dimensions[-1]))#slicing_scheduler.get_head_dimension())
 
@@ -351,7 +384,7 @@ def rotate_and_slice_parallel(
 
     #generate the new dimension matrix
     new_dimensions = slicing_vector_generation(len(layers), model_adapter.hidden_size)
-    print(f"The dimensions will be:{new_dimensions}" )
+    logging.info(f"The dimensions will be:{new_dimensions}" )
 
 
 
@@ -376,8 +409,8 @@ def rotate_and_slice_parallel(
     for idx, layer_adapter in enumerate(tqdm(layers, unit="layer", desc="Rotating and slicing")):
 
         #
-        print(idx)
-        print("Helo2")
+        logging.info(idx)
+        logging.info("Helo2")
         new_imp_emb_dimension = new_dimensions[idx]
         new_out_emb_dimension = new_dimensions[idx + 1]
         """
@@ -449,12 +482,12 @@ def rotate_and_slice_parallel(
 
     # rotate and slice head
     rotate_head(model_adapter, Q)
-    print(f"slicing head with: {new_dimensions[-1]}")
+    logging.info(f"slicing head with: {new_dimensions[-1]}")
     #slice_head(model_adapter, slicing_scheduler.get_head_dimension())
     slice_head(model_adapter, new_dimensions[-1])
 
     if slicing_scheduler.do_slice_head:
-        print(f"slicing head with: {slicing_scheduler.get_head_dimension()}")
+        logging.info(f"slicing head with: {slicing_scheduler.get_head_dimension()}")
         slice_head(model_adapter, slicing_scheduler.get_head_dimension())
 
     # update model's slicing config
@@ -537,7 +570,7 @@ def slice_rotated_model(model_adapter: ModelAdapter, slicing_scheduler: SlicingS
     layers = model_adapter.get_layers()
 
     if not slicing_scheduler:
-        print("No Slicing Scheduler")
+        logging.info("No Slicing Scheduler")
         if model_adapter.slicing_conf.const_dimension is not None:
             # backward compatibility for when no config is available
             slicing_scheduler = ConstSlicingScheduler(model_adapter.slicing_conf.const_dimension)
@@ -558,8 +591,8 @@ def slice_rotated_model(model_adapter: ModelAdapter, slicing_scheduler: SlicingS
         # slice attn weights 2nd dim, attn shortcut 1st dim
         slice_attention_inputs(layer_adapter, slicing_scheduler.get_attention_input_dimension(i))
 
-        print(i)
-        print("Helo3")
+        logging.info(i)
+        logging.info("Helo3")
 
         # slice mlp input 2nd dimension
         slice_mlp_input(layer_adapter, slicing_scheduler.get_mlp_input_dimension(i))
