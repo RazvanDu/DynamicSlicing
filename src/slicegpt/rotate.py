@@ -14,7 +14,102 @@ from .model_utils import get_layer0_inputs, get_signals
 from .slicing_scheduler import ConfigSlicingScheduler, ConstSlicingScheduler, SlicingScheduler
 from .utils import cleanup_memory, map_tensors
 
-def adjust_values_to_target_average(values, target_avg):
+
+def calculate_perplexity(model, dataloader, tokenizer):
+    """
+    Calculate the perplexity of the model on the given dataloader.
+    This is a placeholder function; you'll need to implement it based on your specific model and task.
+    """
+    model.eval()
+    total_loss = 0
+    total_tokens = 0
+    with torch.no_grad():
+        for batch in dataloader:
+            inputs = batch['input_ids'].to(model.device)
+            attention_mask = batch['attention_mask'].to(model.device)
+            outputs = model(inputs, attention_mask=attention_mask, labels=inputs)
+            loss = outputs.loss
+            total_loss += loss.item() * inputs.size(0)
+            total_tokens += attention_mask.sum().item()
+
+    average_loss = total_loss / total_tokens
+    perplexity = torch.exp(torch.tensor(average_loss))
+    return perplexity.item()
+
+
+def adjust_layer_dimensions(model_adapter, layer_pair):
+    """
+    Adjust the dimensions of the selected pair of layers.
+    This is a placeholder function; the implementation depends on how your layers are structured and how you wish to modify them.
+    """
+    # Example: Modify this function to adjust the dimensions of the model's layers as needed
+    pass
+
+
+def optimize_model_perplexity(model_adapter, dataloader, slicing_scheduler, tokenizer, device='cuda'):
+    """
+    Optimizes the model's layers to minimize perplexity by repeatedly adjusting the dimensions
+    of unique pairs of layers.
+
+    Args:
+    - model_adapter: A ModelAdapter instance for accessing and modifying the model.
+    - dataloader: DataLoader instance providing the data.
+    - slicing_scheduler: SlicingScheduler instance to manage slicing operations.
+    - tokenizer: Tokenizer for the model.
+    - device: The device to perform computations on.
+    """
+    improvement = True
+    iteration = 0
+    while improvement:
+        improvement = False
+        original_model_state = copy.deepcopy(model_adapter.model.state_dict())
+        best_perplexity = calculate_perplexity(model_adapter.model.to(device), dataloader, tokenizer)
+        original_perplexity = best_perplexity
+        best_config = None
+
+        # Generate all unique layer pairs
+        layer_indices = list(range(len(model_adapter.get_layers())))
+        unique_layer_pairs = [(i, j) for i in layer_indices for j in layer_indices if i < j]
+        random.shuffle(unique_layer_pairs)  # Shuffle to ensure randomness
+
+        for _ in tqdm(range(30), desc=f"Iteration {iteration}"):
+            if not unique_layer_pairs:
+                break
+
+            layer_pair = unique_layer_pairs.pop()
+            adjust_layer_dimensions(model_adapter, layer_pair)  # Placeholder: Implement based on your model
+
+            # Placeholder: Implement the rotation and slicing operation for the new configuration
+            # rotate_and_slice_parallel(model_adapter, dataloader, slicing_scheduler, apply_mask=True, final_orientation='pca')
+
+            new_perplexity = calculate_perplexity(model_adapter.model.to(device), dataloader, tokenizer)
+
+            if new_perplexity < best_perplexity:
+                best_perplexity = new_perplexity
+                best_config = layer_pair
+                improvement = True
+                # Save the best model state found so far
+                best_model_state = copy.deepcopy(model_adapter.model.state_dict())
+
+            # Revert model to original state before next adjustment
+            model_adapter.model.load_state_dict(original_model_state)
+
+        if improvement:
+            # Apply the best configuration found in this iteration
+            model_adapter.model.load_state_dict(best_model_state)
+            print(
+                f"Improvement found in iteration {iteration}: Perplexity improved from {original_perplexity} to {best_perplexity}, adjusting layers {best_config}.")
+        else:
+            print("No further improvement found.")
+
+        iteration += 1
+
+
+# Example usage placeholder: You will need to define or replace `model_adapter`, `dataloader`, `slicing_scheduler`, and `tokenizer` with your actual objects or variables.
+# optimize_model_perplexity(model_adapter, dataloader, slicing_scheduler, tokenizer)
+
+
+def adjust_values_to_target_average(values, target_avg, diff):
     current_avg = np.mean(values)
     while not np.isclose(current_avg, target_avg, rtol=1e-03):
 
@@ -28,7 +123,7 @@ def adjust_values_to_target_average(values, target_avg):
             modifier = 1
 
         values[random_index] += modifier
-        values[random_index] = np.clip(values[random_index], target_avg * 0.8, target_avg * 1.2)
+        values[random_index] = np.clip(values[random_index], target_avg * (1 - diff), target_avg * (1 + diff))
 
         current_avg = np.mean(values)
 
@@ -37,11 +132,13 @@ def adjust_values_to_target_average(values, target_avg):
 def slicing_vector_generation(nr_layers, initial_dimension):
     target_avg_value = initial_dimension * 0.7  # 30% reduction target
 
+    diff = 0.05
+
     # Generate initial values randomly within ±20% of the initial dimension
-    new_dim = np.random.uniform(0.8, 1.2, nr_layers + 1) * target_avg_value
+    new_dim = np.random.uniform(1 - diff, 1 + diff, nr_layers + 1) * target_avg_value
 
     # Adjust the generated values to ensure the average is exactly as required
-    new_dim_adjusted = adjust_values_to_target_average(new_dim, target_avg_value)
+    new_dim_adjusted = adjust_values_to_target_average(new_dim, target_avg_value, diff)
 
     # Ensure the array contains integers
     new_dim_adjusted = np.round(new_dim_adjusted).astype(int)
@@ -192,7 +289,7 @@ def slice_head(model_adapter: ModelAdapter, new_embedding_dimension: int) -> Non
     lm_head.in_features = new_embedding_dimension
     #print(f"The head shape after slicing is:{lm_head}")
 
-
+'''
 def rotate_and_slice(
     model_adapter: ModelAdapter,
     dataloader: torch.utils.data.DataLoader[torch.Tensor],
@@ -211,6 +308,24 @@ def rotate_and_slice(
         logging.info("\n\nseq branch")
         rotate_and_slice_sequential(model_adapter, dataloader, slicing_scheduler, apply_mask, final_orientation)
 
+'''
+def rotate_and_slice(
+    model_adapter: ModelAdapter,
+    dataloader: torch.utils.data.DataLoader[torch.Tensor],
+    slicing_scheduler: SlicingScheduler,
+    apply_mask: bool = True,
+    final_orientation: str = 'pca',
+) -> None:
+    """
+    Rotate and slice a model, with interleaved slicing and PCA calculations
+    """
+    logging.info("\n\nrotate and slice func")
+    if model_adapter.parallel_blocks:
+        logging.info("\n\nparal branch")
+        rotate_and_slice_parallel(model_adapter, dataloader, slicing_scheduler, apply_mask, final_orientation)
+    else:
+        logging.info("\n\nseq branch")
+        rotate_and_slice_sequential(model_adapter, dataloader, slicing_scheduler, apply_mask, final_orientation)
 
 @torch.no_grad()
 def rotate_and_slice_sequential(
