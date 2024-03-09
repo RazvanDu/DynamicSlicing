@@ -159,6 +159,7 @@ def slice_particular_layer(nr_layers, initial_dimension, layer_number, amount, a
         raise ValueError(f"layer_number must be between 0 and {nr_layers - 1}, inclusive")
 
     # Modify the dimension of the specified layer based on the add_or_substract parameter
+    #print(f"add or substract: {add_or_substract}")
     if add_or_substract == False:
         # Ensure that the layer dimension cannot be less than 0 after subtraction
         new_dim[layer_number] = max(new_dim[layer_number] - amount, 0)
@@ -537,7 +538,7 @@ def rotate_and_slice_parallel(
     new_dimensions = slice_particular_layer(len(layers), model_adapter.hidden_size, slice_layer_number, slice_dimension, add_dimension)
     # new_dimensions = slicing_vector_generation(len(layers), model_adapter.hidden_size)
     logging.info(f"The dimensions will be: {new_dimensions}")
-    print(f"The dimensions will be: {new_dimensions}")
+    #print(f"The dimensions will be: {new_dimensions}")
 
 
 

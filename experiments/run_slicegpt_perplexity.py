@@ -114,7 +114,7 @@ def argparser() -> argparse.Namespace:
 
     parser.add_argument("--slice-layer", type=int, default=0, help="The layer we are currently slicing.")
     parser.add_argument("--slice-dimension", type=int, default=20, help="The dimension we are adding/ reducing from that certain layer")
-    parser.add_argument("--add-dimension", type=bool, default = False, help="Default: the amount is subtracted. Add the param: True, to add dimension")
+    parser.add_argument("--add-dimension", type=bool, default=False, help="Default: the amount is subtracted. Add the param: True, to add dimension")
 
     args = parser.parse_args()
 
