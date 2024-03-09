@@ -132,7 +132,7 @@ def adjust_values_to_target_average(values, target_avg, diff):
 def slicing_vector_generation(nr_layers, initial_dimension):
     target_avg_value = initial_dimension * 0.7  # 30% reduction target
 
-    diff = 0.05
+    diff = 0
 
     # Generate initial values randomly within ±20% of the initial dimension
     new_dim = np.random.uniform(1 - diff, 1 + diff, nr_layers + 1) * target_avg_value
@@ -144,6 +144,33 @@ def slicing_vector_generation(nr_layers, initial_dimension):
     new_dim_adjusted = np.round(new_dim_adjusted).astype(int)
 
     return new_dim_adjusted
+
+import numpy as np
+
+
+def slice_particular_layer(nr_layers, initial_dimension, layer_number, amount, add_or_substract):
+    # Create a vector with all elements set to the initial_dimension
+    cut_dimension = initial_dimension * 0.7
+    #print(initial_dimension, cut_dimension)
+    new_dim = np.full(nr_layers + 1, cut_dimension)
+
+    # Check if the layer_number is within the range of the layers
+    if not (0 <= layer_number < nr_layers):
+        raise ValueError(f"layer_number must be between 0 and {nr_layers - 1}, inclusive")
+
+    # Modify the dimension of the specified layer based on the add_or_substract parameter
+    if add_or_substract == False:
+        # Ensure that the layer dimension cannot be less than 0 after subtraction
+        new_dim[layer_number] = max(new_dim[layer_number] - amount, 0)
+        print(f"The new dim of the layer was substracted, new dim:{new_dim[layer_number]}")
+    else:
+        new_dim[layer_number] += amount
+        print(f"The new dim of the layer was added, new dim:{new_dim[layer_number]}")
+
+    new_dim = np.round(new_dim).astype(int)
+
+    return new_dim
+
 
 #def slicing_vector_generation(nr_layers, initial_dimension):
 #    target_avg_value = initial_dimension * 0.7
@@ -309,9 +336,13 @@ def rotate_and_slice(
         rotate_and_slice_sequential(model_adapter, dataloader, slicing_scheduler, apply_mask, final_orientation)
 
 '''
+
 def rotate_and_slice(
     model_adapter: ModelAdapter,
     dataloader: torch.utils.data.DataLoader[torch.Tensor],
+    slice_layer_number: int,
+    slice_dimension: int,
+    add_dimension: bool,
     slicing_scheduler: SlicingScheduler,
     apply_mask: bool = True,
     final_orientation: str = 'pca',
@@ -322,7 +353,8 @@ def rotate_and_slice(
     logging.info("\n\nrotate and slice func")
     if model_adapter.parallel_blocks:
         logging.info("\n\nparal branch")
-        rotate_and_slice_parallel(model_adapter, dataloader, slicing_scheduler, apply_mask, final_orientation)
+        rotate_and_slice_parallel(model_adapter, dataloader, slicing_scheduler, slice_layer_number, slice_dimension,
+                                  add_dimension, apply_mask, final_orientation)
     else:
         logging.info("\n\nseq branch")
         rotate_and_slice_sequential(model_adapter, dataloader, slicing_scheduler, apply_mask, final_orientation)
@@ -474,6 +506,9 @@ def rotate_and_slice_parallel(
     model_adapter: ModelAdapter,
     dataloader: torch.utils.data.DataLoader[torch.Tensor],
     slicing_scheduler: SlicingScheduler,
+    slice_layer_number: int,
+    slice_dimension: int,
+    add_dimension: bool,
     apply_mask: bool = True,
     final_orientation: str = 'pca',
 ) -> None:
@@ -498,8 +533,12 @@ def rotate_and_slice_parallel(
     slicing_scheduler.setup(hidden_size=model_adapter.hidden_size, layers_num=len(layers), parallel_blocks=True)
 
     #generate the new dimension matrix
-    new_dimensions = slicing_vector_generation(len(layers), model_adapter.hidden_size)
-    logging.info(f"The dimensions will be:{new_dimensions}" )
+
+    new_dimensions = slice_particular_layer(len(layers), model_adapter.hidden_size, slice_layer_number, slice_dimension, add_dimension)
+    # new_dimensions = slicing_vector_generation(len(layers), model_adapter.hidden_size)
+    logging.info(f"The dimensions will be: {new_dimensions}")
+    print(f"The dimensions will be: {new_dimensions}")
+
 
 
 

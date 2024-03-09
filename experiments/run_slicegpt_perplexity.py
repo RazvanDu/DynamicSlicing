@@ -81,6 +81,9 @@ def argparser() -> argparse.Namespace:
     parser.add_argument(
         "--ppl-eval-seqlen", type=int, default=2048, help="Sequence length for evaluating the perplexity."
     )
+
+
+
     parser.add_argument("--ppl-eval-batch-size", type=int, default=8, help="Batch size for evaluating the perplexity.")
     parser.add_argument(
         "--ppl-eval-nsamples", type=int, default=128, help="Number of samples to evaluate the perplexity on."
@@ -106,6 +109,12 @@ def argparser() -> argparse.Namespace:
         default=None,
         help="PyTorch device to use. Example values are 'cpu', 'cuda', 'cuda:0'. If not specified it will be defaulted to 'cuda' if available and 'cpu' otherwise.",
     )
+
+    #add arguments to set the slicing size and what layer we are currently slicing
+
+    parser.add_argument("--slice-layer", type=int, default=0, help="The layer we are currently slicing.")
+    parser.add_argument("--slice-dimension", type=int, default=20, help="The dimension we are adding/ reducing from that certain layer")
+    parser.add_argument("--add-dimension", type=bool, default = False, help="Default: the amount is subtracted. Add the param: True, to add dimension")
 
     args = parser.parse_args()
 
@@ -193,6 +202,7 @@ def main() -> None:
         reset_model_device()
         dataset_ppl = gpu_utils.evaluate_ppl(model, model.config.pad_token_id, test_loader)
         logging.info(f'Loaded model perplexity: {dataset_ppl}')
+        print(f"Original perplexity: {dataset_ppl}")
         wandb.log({"original_ppl": dataset_ppl})
         return
 
@@ -240,10 +250,12 @@ def main() -> None:
         f"New embedding dimension: {new_embedding_dimension} (sparsity {100*(1 - new_embedding_dimension / model_adapter.hidden_size):.4f} %)"
     )
 
-    scheduler = ConstSlicingScheduler(new_embedding_dimension)
-    logging.info("Rotate and slice lol")
-    rotate.rotate_and_slice(model_adapter, train_loader, scheduler, final_orientation=args.final_orientation)
+    #print(f"Add or substract. true- add, false, substract{args.add_dimension}")
 
+    scheduler = ConstSlicingScheduler(new_embedding_dimension)
+    # add arguments to pass the new arguments
+    rotate.rotate_and_slice(model_adapter, train_loader, args.slice_layer, args.slice_dimension,
+                            args.add_dimension, scheduler, final_orientation=args.final_orientation)
 
 
     if args.save_dir:
@@ -275,6 +287,12 @@ def main() -> None:
 
     reset_model_device()
     dataset_ppl = gpu_utils.evaluate_ppl(model, model.config.pad_token_id, test_loader)
+    '''
+    if args.add_dimension:
+        print(f'Adding to layer nr {args.slice_layer}, adding {args.slice_dimension}')
+    else:
+        print(f'Substr from layer nr {args.slice_layer}, substracting {args.slice_dimension}')
+    '''
     print(f'After rotating and slicing {dataset_ppl:.4f}')
     wandb.log({"sliced_ppl": dataset_ppl})
 

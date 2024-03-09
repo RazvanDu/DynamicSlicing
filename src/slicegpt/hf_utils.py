@@ -81,7 +81,7 @@ def get_model_and_tokenizer(
     if not local_model:
         model_path = model_name
 
-    print(f"Final path is, path is {local_model}")
+    #print(f"Final path is, path is {local_model}")
 
     logging.info(
         f"Loading %s config %s from %s",
