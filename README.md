@@ -1,6 +1,6 @@
 # Transformer Compression with SliceGPT
 
-This repository contains the code for the paper [SliceGPT](https://arxiv.org/abs/2401.15024) (ICLR'24). 
+This repository contains the code for the paper [SliceGPT](https://arxiv.org/abs/2401.15024) (ICLR'24). Also discussed on [Hugging Face](https://huggingface.co/papers/2401.15024). 
 
 SliceGPT is a new post-training sparsification scheme that makes transformer networks (including LLMs) smaller by 
 first applying orthogonal transformations to each transformer layer that leave the model unchanged, and then slicing off the 
@@ -11,34 +11,73 @@ of the model. This results in speedups (without any additional code optimization
 The code is arranged as a package `slicegpt` in `/src`, and scripts to replicate experiments from the paper are in 
 `/experiments`. To install the `slicegpt` package, we recommend
 
-`pip install -e .`
+```
+    pip install -e . 
+```
 
 ## Running SliceGPT
 
 To run SliceGPT on `microsoft/phi-2`, from the `experiments` folder, run 
 ```
-    python run_slicegpt_perplexity.py \
+    python run_slicegpt.py \
            --model microsoft/phi-2 \
            --save-dir dir/to/save/sliced_model/in \
            --sparsity 0.25 \
-           --no-wandb \
            --device cuda:0 \
-           --eval-baseline
+           --eval-baseline \
+           --no-wandb
 ```
 
 This will compress the `microsoft/phi-2` model and save the compressed model to the specified directory. Please consult 
 the script for the full set of options.
 
-The experiments folder also contains scripts for 
-- [finetuning](./experiments/run_finetuning.py) the compressed model to recover most of the quality lost during compression
-- [zero-shot task evaluation](./experiments/run_zero_shot_tasks.py) of a dense, compressed or fine-tuned model
-
-_Note:_ For models that require HuggingFace authentication, set the `--hf-token` argument 
+_Note:_ For models that require Hugging Face authentication, set the `--hf-token` argument 
 manually or using a key vault. Alternatively, set the environment variable `HF_TOKEN`.
+
+### Recovery fine-tuning
+
+To install additional dependencies required for post-slicing recovery fine-tuning (RFT):
+
+```
+    pip install -e .[finetune]
+```
+
+The following replicates the experiments in the paper (LoRA hyperparams valid for all Llama-2 and Phi-2 models): 
+```
+    python run_finetuning.py \
+           --model microsoft/phi-2 \
+           --sliced-model-path path/to/sliced/model.pt \
+           --save-dir dir/to/save/finetuned_model/in \
+           --sparsity 0.25 \
+           --device cuda:0 \
+           --ppl-eval-dataset alpaca \
+           --finetune-dataset alpaca \
+           --finetune-train-nsamples 8000 \
+           --finetune-train-seqlen 1024 \
+           --finetune-train-batch-size 3 \
+           --lora-alpha 10 \
+           --lora-r 32 \
+           --lora-dropout 0.05 \
+           --lora-target-option attn_head_and_mlp \
+           --eval-steps 16 \
+           --save-steps 16 \
+           --no-wandb
+```
+
+Note: the script [`bo_finetuning.py`](./experiments/bo_finetuning.py) can be use to run Bayesian optimization over the RFT hyperparameters.
+
+### Evaluation using the [LM Eval Harness](https://github.com/EleutherAI/lm-evaluation-harness) 
+```
+    python run_lm_eval.py \
+           --model microsoft/phi-2 \
+           --sliced-model-path path/to/sliced/model.pt \
+           --tasks piqa \
+           --no-wandb
+```
 
 ## Supported models
 
-The following models from HuggingFace hub are currently supported
+The following models from Hugging Face hub are currently supported
 - [microsoft/phi-2](https://huggingface.co/microsoft/phi-2)
 - [meta-llama/Llama-2-7b-hf](https://huggingface.co/meta-llama/Llama-2-7b)
 - [meta-llama/Llama-2-13b-hf](https://huggingface.co/meta-llama/Llama-2-13b)
@@ -53,8 +92,10 @@ The following models from HuggingFace hub are currently supported
 
 ## Extending support to a new model type
 
-The model you wish to support must be available in HuggingFace. To add SliceGPT support for a new model, 
-one needs to implement a new model adapter before using it to slice a new model.
+The model you wish to support must be in Hugging Face Hub format. The model files can be downloaded from 
+Hugging Face Hub by supplying `--model` argument, or accessed from local storage by using the `--model` and 
+`--model-path` argument. To add SliceGPT support for a new model, one needs to implement a new model adapter 
+and update `hf_utils.get_model_and_tokenizer` before slicing the new model.
 
 ### Implementing a new model adapter
 - Implement the [ModelAdapter](./src/slicegpt/model_adapter.py) interface for the new model. The ModelAdapter class tells SliceGPT 
@@ -73,7 +114,7 @@ one needs to implement a new model adapter before using it to slice a new model.
   ([Phi-2](./src/slicegpt/adapters/phi2_adapter.py)). The `self.*_shortcut_Q` matrices are attached to the modules during
   slicing and are available in `forward()`. If the skip connection does not need modification, these matrices will be None, 
   and the `forward()` method can follow the original workflow. For more details on this, 
-  please read Section 3 [the paper](https://arxiv.org/abs/2401.15024).
+  please read Section 3 in [the paper](https://arxiv.org/abs/2401.15024).
 
 Example: [llama_adapter.py](./src/slicegpt/adapters/llama_adapter.py)
 
@@ -85,7 +126,7 @@ Once a model adapter is implemented, compressing the model involves three concep
 
 Example: [run_slicegpt_perplexity.py](./experiments/run_slicegpt_perplexity.py)
 
-_Note:_ If the model you wish to support is not available in HuggingFace, you will also need to implement 
+_Note:_ If the model you wish to support is not available in Hugging Face, you will also need to implement 
 custom model loading and initialization functionality.
 
 ## Contributing

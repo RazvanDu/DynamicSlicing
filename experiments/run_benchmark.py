@@ -11,33 +11,29 @@ import wandb
 from slicegpt import data_utils, gpu_utils, hf_utils, utils
 from slicegpt.config import config
 
-utils.configure_logging()
 
-os.environ["WANDB__SERVICE_WAIT"] = "300"
-
-
-def argparser() -> argparse.Namespace:
+def benchmarking_arg_parser(interactive: bool = True) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--model",
         type=str,
-        help="OPT model to load; pass `facebook/opt-125m`.",
-        choices=[
-            # OPT models
-            "facebook/opt-125m",
-            "facebook/opt-1.3b",
-            "facebook/opt-2.7b",
-            "facebook/opt-6.7b",
-            "facebook/opt-13b",
-            "facebook/opt-30b",
-            "facebook/opt-66b",
-            # LLAMA 2 Models
-            'meta-llama/Llama-2-7b-hf',
-            'meta-llama/Llama-2-13b-hf',
-            'meta-llama/Llama-2-70b-hf',
-        ],
         default="facebook/opt-125m",
+        help="Model to load",
     )
+    path_group = parser.add_mutually_exclusive_group()
+    path_group.add_argument(
+        "--model-path",
+        type=str,
+        default=None,
+        help="Path to load the model and tokenizer from (required for local models, not required for HF models)",
+    )
+    path_group.add_argument(
+        "--sliced-model-path",
+        type=str,
+        help="Path to load the model to fine-tune (sliced) and tokenizer from",
+        default=None,
+    )
+
     parser.add_argument("--dtype", type=str, help="Data type to use.", choices=["fp32", "fp16"], default="fp16")
     parser.add_argument(
         "--eval-dataset",
@@ -63,10 +59,9 @@ def argparser() -> argparse.Namespace:
         help="Use accelerate to put the model on multiple GPUs for evaluation. It is recommended to use it for models with 30B parameters and above.",
     )
 
-    parser.add_argument("--load-model-path", type=str, default=None, help="Path to load the sliced model from.")
-
     parser.add_argument('--hf-token', type=str, default=os.getenv('HF_TOKEN', None))
 
+    parser.add_argument('--wandb-project', type=str, default="slicegpt-bench", help="wandb project name.")
     parser.add_argument('--no-wandb', action="store_true", help="Disable wandb.")
     parser.add_argument(
         '--device',
@@ -75,8 +70,10 @@ def argparser() -> argparse.Namespace:
         help="PyTorch device to use. Example values are 'cpu', 'cuda', 'cuda:0'. If not specified it will be defaulted to 'cuda' if available and 'cpu' otherwise.",
     )
 
-    args = parser.parse_args()
+    return parser.parse_args() if interactive else parser.parse_args('')
 
+
+def process_benchmarking_args(args: argparse.Namespace):
     logging.debug(f'Parsed arguments:')
     for arg, argv in vars(args).items():
         logging.debug(f'{arg} = {argv}')
@@ -94,34 +91,31 @@ def argparser() -> argparse.Namespace:
     else:
         raise argparse.ArgumentTypeError(f"Data type should be one of 'fp16', 'fp32'")
 
-    return args
 
-
-def main() -> None:
+def benchmarking_main(args: argparse.Namespace) -> None:
     logging.info("Running benchmarking of a sliced model.")
-
-    args = argparser()
-
     logging.info(f"PyTorch device: {config.device}")
     logging.info(f"Number of available cuda devices: {torch.cuda.device_count()}")
 
     try:
-        wandb.init(project="slicegpt-bench", config=args)
+        wandb.init(project=args.wandb_project, config=args, mode='disabled' if args.no_wandb else None)
     except wandb.UsageError as e:
         # wandb.init will throw an error if the user is not logged in and the process is running in a non-shell
         # environment, e.g. notebook, IDE, no-shell process, etc. In this case, we want to continue without wandb.
-        logging.info(f'Failed to initialize wandb: {e}, continuing without wandb.')
-        wandb.init(project="slicegpt", mode='disabled')
+        logging.info(f'Failed to initialize wandb: {e}, continuing without wandb')
+        wandb.init(project=args.wandb_project, mode='disabled')
 
-    if args.load_model_path:
-        # load the model from load_model_path to compute perplexity and skip rotation and slicing
-        logging.info(f"Loading sliced {args.model} model from {args.load_model_path} with sparsity {args.sparsity}")
+    if args.sliced_model_path:
+        # load the model from sliced_model_path to compute perplexity and skip rotation and slicing
+        logging.info(f"Loading sliced {args.model} model from {args.sliced_model_path} with sparsity {args.sparsity}")
         model_adapter, tokenizer = hf_utils.load_sliced_model(
-            args.model, args.load_model_path, args.sparsity, args.hf_token
+            args.model, args.sliced_model_path, sparsity=args.sparsity, token=args.hf_token
         )
     else:
         # load one of the pre-trained models
-        model_adapter, tokenizer = hf_utils.get_model_and_tokenizer(args.model, token=args.hf_token, dtype=config.dtype)
+        model_adapter, tokenizer = hf_utils.get_model_and_tokenizer(
+            args.model, args.model_path, token=args.hf_token, dtype=config.dtype
+        )
 
     if args.distribute_model:
         # distribute model across available GPUs
@@ -129,9 +123,9 @@ def main() -> None:
     else:
         model_adapter.model.to(config.device)
 
-    train_dataset, _ = data_utils.get_dataset(args.eval_dataset)
+    dataset = data_utils.get_dataset(args.eval_dataset)
     train_loader = data_utils.prepare_dataloader(
-        dataset=train_dataset,
+        dataset=dataset["train"],
         tokenizer=tokenizer,
         max_seqlen=model_adapter.seqlen,
         batch_size=args.batch_size,
@@ -147,4 +141,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    utils.configure_logging()
+    os.environ["WANDB__SERVICE_WAIT"] = "300"
+    benchmarking_args = benchmarking_arg_parser()
+    process_benchmarking_args(benchmarking_args)
+    benchmarking_main(benchmarking_args)
