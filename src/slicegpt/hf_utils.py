@@ -81,12 +81,16 @@ def get_model_and_tokenizer(
     if not local_model:
         model_path = model_name
 
+    #print(f"Final path is, path is {local_model}")
+
     logging.info(
         f"Loading %s config %s from %s",
         model_name,
         "and model weights" if not uninitialized else "",
         model_path if local_model else 'Hugging Face',
     )
+
+
 
     model_adapter = ModelAdapter.from_model(
         model_name,
@@ -97,12 +101,14 @@ def get_model_and_tokenizer(
         token=token,
     )
 
+
+
     model = model_adapter.model
     model.seqlen = model.config.max_position_embeddings
     model.eval()  # This switches off dropout.
     model_adapter.use_cache = False
 
-    tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True, token=token, local_files_only=local_model)
+    tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True, token=token)
 
     model_adapter.post_init(tokenizer)
     logging.info("Loading model done")

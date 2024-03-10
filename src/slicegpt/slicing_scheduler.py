@@ -47,6 +47,21 @@ class SlicingScheduler(ABC):
         self.slicing_conf.parallel_blocks = parallel_blocks
 
     @final
+    def set_second_embedding_dimensions(self, second_dim):
+        """Set the new embedding dimension."""
+        val = self._get_input_embedding_dimensions()
+
+        # Retrieve the current embedding dimensions for logging
+        #print(f"\nold emb dimension: {self.slicing_conf.embedding_dimensions}")
+
+        # Assuming we know the key for the second dimension
+        second_key = list(self.slicing_conf.embedding_dimensions.keys())[0]  # This gets the second key
+        self.slicing_conf.embedding_dimensions[second_key] = second_dim  # Assign the new dimension to the second key
+
+        # Print the new embedding dimensions for confirmation
+        print(f"\new emb dimension: {self.slicing_conf.embedding_dimensions}")
+
+    @final
     def get_embedding_dimensions(self) -> dict[int, int]:
         """Return the input embedding dimensions."""
         val = self._get_input_embedding_dimensions()

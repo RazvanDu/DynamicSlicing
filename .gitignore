@@ -423,7 +423,7 @@ sdist/
 var/ 
 wheels/ 
 *.egg-info/ 
-.installed.cfg 
+.installed.cfg
 *.egg 
 *.manifest 
 *.spec 

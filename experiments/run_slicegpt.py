@@ -1,9 +1,12 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
+import os
+os.environ["WANDB_SERVICE_WAIT"] = "300"
+os.environ['TRANSFORMERS_CACHE'] = '/storage/paulclotan/SmartSliceGPT/models'
+
 import argparse
 import logging
-import os
 import pathlib
 import shutil
 
@@ -15,7 +18,10 @@ from slicegpt.config import config
 from slicegpt.slicing_scheduler import ConstSlicingScheduler
 
 
-def slicing_arg_parser(interactive: bool = True) -> argparse.Namespace:
+
+utils.configure_logging()
+
+def argparser() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--model",
@@ -50,7 +56,7 @@ def slicing_arg_parser(interactive: bool = True) -> argparse.Namespace:
         help="Number of samples of the calibration data to load.",
         default=128,
     )
-    parser.add_argument("--cal-batch-size", type=int, default=16, help="Batch size for loading the calibration data.")
+    parser.add_argument("--cal-batch-size", type=int, default=1, help="Batch size for loading the calibration data.")
     parser.add_argument(
         "--cal-max-seqlen", type=int, default=2048, help="Maximum sequence length for the calibration data."
     )
@@ -75,6 +81,9 @@ def slicing_arg_parser(interactive: bool = True) -> argparse.Namespace:
     parser.add_argument(
         "--ppl-eval-seqlen", type=int, default=2048, help="Sequence length for evaluating the perplexity."
     )
+
+
+
     parser.add_argument("--ppl-eval-batch-size", type=int, default=8, help="Batch size for evaluating the perplexity.")
     parser.add_argument(
         "--ppl-eval-nsamples", type=int, default=128, help="Number of samples to evaluate the perplexity on."
@@ -101,10 +110,15 @@ def slicing_arg_parser(interactive: bool = True) -> argparse.Namespace:
         help="PyTorch device to use. Example values are 'cpu', 'cuda', 'cuda:0'. If not specified it will be defaulted to 'cuda' if available and 'cpu' otherwise.",
     )
 
-    return parser.parse_args() if interactive else parser.parse_args('')
+    #add arguments to set the slicing size and what layer we are currently slicing
 
+    parser.add_argument("--slice-layer", type=int, default=0, help="The layer we are currently slicing.")
+    parser.add_argument("--slice-dimension", type=int, default=20, help="The dimension we are adding/ reducing from that certain layer")
+    parser.add_argument("--add-dimension", type=bool, default=False, help="Default: the amount is subtracted. Add the param: True, to add dimension")
 
-def process_slicing_args(args):
+    args = parser.parse_args()
+
+    logging.debug(f'Parsed arguments:')
     for arg, argv in vars(args).items():
         logging.debug(f'{arg} = {argv}')
 
@@ -121,11 +135,17 @@ def process_slicing_args(args):
     else:
         raise argparse.ArgumentTypeError(f"Data type should be one of 'fp16', 'fp32'")
 
+    return args
 
-def slicing_main(args: argparse.Namespace) -> None:
-    logging.info("Running SliceGPT experiment.")
+
+def main() -> None:
+    logging.info("Running SliceGPT perplexity experiment")
+
+    args = argparser()
+
     logging.info(f"PyTorch device: {config.device}")
     logging.info(f"Number of available cuda devices: {torch.cuda.device_count()}")
+
 
     try:
         wandb.init(project=args.wandb_project, config=args, mode='disabled' if args.no_wandb else None)
@@ -147,7 +167,8 @@ def slicing_main(args: argparse.Namespace) -> None:
     else:
         # load one of the pre-trained models
         model_adapter, tokenizer = hf_utils.get_model_and_tokenizer(
-            args.model, args.model_path, token=args.hf_token, dtype=config.dtype
+            args.model, args.model_path, token=args.hf_token, dtype=config.dtype,
+
         )
 
     model = model_adapter.model
@@ -158,6 +179,8 @@ def slicing_main(args: argparse.Namespace) -> None:
             gpu_utils.distribute_model(model_adapter)
         else:
             model.to(config.device)
+
+
 
     dataset = data_utils.get_dataset(args.cal_dataset)
     train_dataset, test_dataset = dataset["train"], dataset["test"]
@@ -179,6 +202,7 @@ def slicing_main(args: argparse.Namespace) -> None:
         reset_model_device()
         dataset_ppl = gpu_utils.evaluate_ppl(model, model.config.pad_token_id, test_loader)
         logging.info(f'Loaded model perplexity: {dataset_ppl}')
+        print(f"Original perplexity: {dataset_ppl}")
         wandb.log({"original_ppl": dataset_ppl})
         return
 
@@ -191,7 +215,7 @@ def slicing_main(args: argparse.Namespace) -> None:
         model.cpu()
         utils.cleanup_memory()
 
-    # replace modules with compressible equivalents
+
     layernorm_fusion.replace_layers(model_adapter)
 
     # fuse layernorms and add rotations to skip connections
@@ -210,6 +234,7 @@ def slicing_main(args: argparse.Namespace) -> None:
         # run GC and cleanup GPU memory
         utils.cleanup_memory()
 
+
     original_param_count = sum(int(p.nelement()) for p in model.parameters())
     logging.info(f'Original model parameters: {original_param_count:,d}')
 
@@ -217,12 +242,21 @@ def slicing_main(args: argparse.Namespace) -> None:
     new_embedding_dimension = int((1 - args.sparsity) * model_adapter.hidden_size)
     # round (down) to the nearest multiple of round_interval
     new_embedding_dimension -= new_embedding_dimension % args.round_interval
+
+    ### new embedding dimension modified:
+    #new_embedding_dimension = 1792
+
     logging.info(
         f"New embedding dimension: {new_embedding_dimension} (sparsity {100*(1 - new_embedding_dimension / model_adapter.hidden_size):.4f} %)"
     )
 
+    #print(f"Add or substract. true- add, false, substract{args.add_dimension}")
+
     scheduler = ConstSlicingScheduler(new_embedding_dimension)
-    rotate.rotate_and_slice(model_adapter, train_loader, scheduler, final_orientation=args.final_orientation)
+    # add arguments to pass the new arguments
+    rotate.rotate_and_slice(model_adapter, train_loader, args.slice_layer, args.slice_dimension,
+                            args.add_dimension, scheduler, final_orientation=args.final_orientation)
+
 
     if args.save_dir:
         sliced_model_dir = pathlib.Path(args.save_dir)
@@ -240,15 +274,11 @@ def slicing_main(args: argparse.Namespace) -> None:
         # If slicing a local model, also save HF config files in sliced model dir
         if args.model_path:
             try:
-                # copy all config files (tokenizer, model and slicing configs)
-                for file in pathlib.Path(args.model_path).glob("*.json"):
-                    if 'safetensors' not in str(file):
-                        shutil.copy(str(file), sliced_model_dir)
-                # copy all tokenizer models
-                for file in pathlib.Path(args.model_path).glob("*token*.model"):
+                # copy all config files
+                for file in pathlib.Path(args.model_path).glob("*config*.json"):
                     shutil.copy(str(file), sliced_model_dir)
-                # copy vocab merges if any
-                for file in pathlib.Path(args.model_path).glob("merges.txt"):
+                # copy all tokenizer files
+                for file in pathlib.Path(args.model_path).glob("*token*.json"):
                     shutil.copy(str(file), sliced_model_dir)
             except OSError as e:
                 logging.info(f'Failed to copy configs and tokenizer files: {e}')
@@ -257,18 +287,19 @@ def slicing_main(args: argparse.Namespace) -> None:
 
     reset_model_device()
     dataset_ppl = gpu_utils.evaluate_ppl(model, model.config.pad_token_id, test_loader)
-    logging.info(f'After rotating and slicing {dataset_ppl:.4f}')
+    '''
+    if args.add_dimension:
+        print(f'Adding to layer nr {args.slice_layer}, adding {args.slice_dimension}')
+    else:
+        print(f'Substr from layer nr {args.slice_layer}, substracting {args.slice_dimension}')
+    '''
+    print(f'After rotating and slicing {dataset_ppl:.4f}')
     wandb.log({"sliced_ppl": dataset_ppl})
 
     sliced_param_count = sum(int(p.nelement()) for p in model.parameters())
     sliced_fraction = 1.0 - sliced_param_count / original_param_count
-    logging.info(f'Sliced model parameters: {sliced_param_count:,d} (sliced fraction {sliced_fraction:.4f})')
+    print(f'Sliced model parameters: {sliced_param_count:,d} (sliced fraction {sliced_fraction:.4f})')
 
 
 if __name__ == "__main__":
-    utils.configure_logging(log_to_console=True, log_to_file=False, level=logging.INFO)
-    os.environ["WANDB__SERVICE_WAIT"] = "300"
-
-    slicing_args = slicing_arg_parser()
-    process_slicing_args(slicing_args)
-    slicing_main(slicing_args)
+    main()
