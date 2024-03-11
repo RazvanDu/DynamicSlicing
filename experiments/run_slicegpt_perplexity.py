@@ -104,8 +104,8 @@ def argparser() -> argparse.Namespace:
 
     # add arguments to set the slicing size and what layer we are currently slicing
 
-    parser.add_argument("--slice-layer", type=int, default=0, help="The layer we are currently slicing.")
-    parser.add_argument("--slice-dimension", type=int, default=20,
+    parser.add_argument("--slice-layer", type=int, default=1, help="The layer we are currently slicing.")
+    parser.add_argument("--slice-dimension", type=int, default=50,
                         help="The dimension we are adding/ reducing from that certain layer")
     parser.add_argument("--add-dimension", type=bool, default=False,
                         help="Default: the amount is subtracted. Add the param: True, to add dimension")
@@ -250,11 +250,13 @@ def main() -> None:
     reset_model_device()
     dataset_ppl = gpu_utils.evaluate_ppl(model_adapter, test_loader)
     logging.info(f'After rotating and slicing {dataset_ppl:.4f}')
+    print(f'After rotating and slicing {dataset_ppl:.4f}')
     wandb.log({"sliced_ppl": dataset_ppl})
 
     sliced_param_count = sum(int(p.nelement()) for p in model.parameters())
     sliced_fraction = 1.0 - sliced_param_count / original_param_count
     logging.info(f'Sliced model parameters: {sliced_param_count:,d} (sliced fraction {sliced_fraction:.4f})')
+    print(f'Sliced model parameters: {sliced_param_count:,d} (sliced fraction {sliced_fraction:.4f})')
 
 
 if __name__ == "__main__":
