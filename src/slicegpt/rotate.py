@@ -14,6 +14,13 @@ from .model_utils import get_layer0_inputs, get_signals
 from .utils import cleanup_memory, map_tensors
 
 def slicing_vector_generation(nr_layers, initial_dimension):
+    new_dim = []
+    for n_layer in range(nr_layers + 1):
+        new_dim.append(initial_dimension - ((30 / 100 - n_layer / nr_layers * 20 / 100) * initial_dimension))
+    new_dim = np.array(new_dim).astype('int')
+    return new_dim
+'''
+def slicing_vector_generation(nr_layers, initial_dimension):
     target_avg_value = initial_dimension * 0.7  # 30% reduction target
 
     diff = 0
@@ -28,7 +35,7 @@ def slicing_vector_generation(nr_layers, initial_dimension):
     new_dim_adjusted = np.round(new_dim_adjusted).astype(int)
 
     return new_dim_adjusted
-
+'''
 def slice_particular_layer(nr_layers, initial_dimension, layer_number, amount, add_or_substract):
     # Create a vector with all elements set to the initial_dimension
     cut_dimension = initial_dimension * 0.7
@@ -38,7 +45,7 @@ def slice_particular_layer(nr_layers, initial_dimension, layer_number, amount, a
     # Check if the layer_number is within the range of the layers
 
     # Modify the dimension of the specified layer based on the add_or_substract parameter
-    #print(f"add or substract: {add_or_substract}")
+    print(f"add or substract is: {add_or_substract}, with the type: {type(add_or_substract)}")
     if add_or_substract == False:
         # Ensure that the layer dimension cannot be less than 0 after subtraction
         new_dim[layer_number] = max(new_dim[layer_number] - amount, 0)
@@ -317,6 +324,7 @@ def rotate_and_slice_parallel(
 
     new_dimensions = slice_particular_layer(len(layers), model_adapter.hidden_size, slice_layer_number, slice_dimension,
                                             add_dimension)
+    #new_dimensions = slicing_vector_generation(len(layers), model_adapter.hidden_size)
 
     rotate_embeddings(model_adapter, Q)
     slice_embeddings2(model_adapter, new_dimensions)
@@ -373,8 +381,6 @@ def rotate_and_slice_parallel(
         slice_attention_output(layer_adapter, dim)
 
         # slice the shortcut (there is only one, we use attn_shortcut buffer)
-
-        print(f"\ntaiem {int(new_out_emb_dimension) , dim}")
 
         layer.attn_shortcut_Q = layer.attn_shortcut_Q[:int(new_out_emb_dimension), : dim]
         layer.to('cpu')
