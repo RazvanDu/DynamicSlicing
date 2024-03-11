@@ -38,7 +38,7 @@ def slicing_vector_generation(nr_layers, initial_dimension):
 '''
 def slice_particular_layer(nr_layers, initial_dimension, layer_number, amount, add_or_substract):
     # Create a vector with all elements set to the initial_dimension
-    cut_dimension = initial_dimension * 0.7
+    cut_dimension = initial_dimension * 0.7 # 0.7
     #print(initial_dimension, cut_dimension)
     new_dim = np.full(nr_layers + 1, cut_dimension)
 
@@ -71,6 +71,7 @@ def slice_attention_inputs(layer_adapter: LayerAdapter, new_embedding_dimension:
     for W in layer_adapter.get_attention_inputs():
         W.weight.data = W.weight.data[:, :new_embedding_dimension]
         W.in_features = new_embedding_dimension
+        print(f"Slice attention input- dimension {W.weight.data.shape}")
 
     layer_adapter.layer.attn_shortcut_Q = layer_adapter.layer.attn_shortcut_Q[:new_embedding_dimension, :]
 
@@ -94,6 +95,7 @@ def slice_attention_output(layer_adapter: LayerAdapter, new_embedding_dimension:
     if W.bias is not None:
         W.bias.data = W.bias.data[:new_embedding_dimension]
     W.out_features = new_embedding_dimension
+    print(f"Slice attention output- dimension {W.weight.data.shape}")
 
 
 def rotate_mlp_input(layer_adapter: LayerAdapter, Q: torch.Tensor) -> None:
@@ -108,6 +110,7 @@ def slice_mlp_input(layer_adapter: LayerAdapter, new_embedding_dimension: int) -
     # Slice the MLP input weights.
     for W in layer_adapter.get_mlp_inputs():
         W.weight.data = W.weight.data[:, :new_embedding_dimension]
+        print(f"Slice mlp input- dimension {W.weight.data.shape}")
         W.in_features = new_embedding_dimension
 
 
@@ -129,6 +132,7 @@ def slice_mlp_output(layer_adapter: LayerAdapter, new_embedding_dimension: int) 
     if W.bias is not None:
         W.bias.data = W.bias.data[:new_embedding_dimension]
     W.out_features = new_embedding_dimension
+    print(f"Slice mlp output- dimension {W.weight.data.shape}")
 
 
 def rotate_embeddings(model_adapter: ModelAdapter, Q: torch.Tensor) -> None:
@@ -150,10 +154,10 @@ def slice_embeddings(model_adapter: ModelAdapter, new_embedding_dimension: int) 
 ######## poate pusca
 def slice_embeddings2(model_adapter: ModelAdapter, new_embedding_dimensions: np.array) -> None:
     # Slice the embeddings
-    logging.info(f"slice_embeddings {new_embedding_dimensions}")
     for i, W in enumerate(model_adapter.get_embeddings()):
         W.weight.data = W.weight.data[:, : new_embedding_dimensions[i]]
         logging.info(W.weight.data.shape)
+        print(f"Slice emb- dimension {W.weight.data.shape}")
 
 def rotate_head(model_adapter: ModelAdapter, Q: torch.Tensor) -> None:
     # Rotate the head.
@@ -168,6 +172,8 @@ def slice_head(model_adapter: ModelAdapter, new_embedding_dimension: int) -> Non
     lm_head = model_adapter.get_lm_head()
     lm_head.weight.data = lm_head.weight.data[:, :new_embedding_dimension]
     lm_head.in_features = new_embedding_dimension
+
+    print(f"Slice head- dimension {lm_head.weight.data.shape}")
 
 
 def rotate_and_slice(
@@ -326,6 +332,8 @@ def rotate_and_slice_parallel(
                                             add_dimension)
     #new_dimensions = slicing_vector_generation(len(layers), model_adapter.hidden_size)
 
+    print(f"the new dimensions are: {new_dimensions}")
+
     rotate_embeddings(model_adapter, Q)
     slice_embeddings2(model_adapter, new_dimensions)
 
@@ -347,7 +355,8 @@ def rotate_and_slice_parallel(
         for i, inp in enumerate(inps):
             args[i] = layer_adapter.get_updated_args(
                 torch.matmul(inp.to(device=config.device), Q.to(dtype=dtype))[:, :, : int(new_imp_emb_dimension)].cpu(),                args[i],
-            )
+            ) #aici inainte era input
+            #print("Testing for the input signal to this layer ", args[i].shape)
 
         # the simpler equivalent of get_signals
         outputs = []
@@ -375,6 +384,9 @@ def rotate_and_slice_parallel(
             if not do_slice_head:
                 dim = model_adapter.hidden_size
 
+
+        print(f"\n\ndim is:{dim}\n\n" )
+
         rotate_mlp_output(layer_adapter, Q)
         rotate_attention_output(layer_adapter, Q)
         slice_mlp_output(layer_adapter, dim)
@@ -382,7 +394,9 @@ def rotate_and_slice_parallel(
 
         # slice the shortcut (there is only one, we use attn_shortcut buffer)
 
-        layer.attn_shortcut_Q = layer.attn_shortcut_Q[:int(new_out_emb_dimension), : dim]
+        # it was output dimension
+        layer.attn_shortcut_Q = layer.attn_shortcut_Q[:int(new_imp_emb_dimension), : dim]
+        print("Testing for layer attn shortcut q ", layer.attn_shortcut_Q.shape)
         layer.to('cpu')
 
         # Run GC and cleanup GPU memory

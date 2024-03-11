@@ -104,8 +104,8 @@ def argparser() -> argparse.Namespace:
 
     # add arguments to set the slicing size and what layer we are currently slicing
 
-    parser.add_argument("--slice-layer", type=int, default=0, help="The layer we are currently slicing.")
-    parser.add_argument("--slice-dimension", type=int, default=20,
+    parser.add_argument("--slice-layer", type=int, default=1, help="The layer we are currently slicing.")
+    parser.add_argument("--slice-dimension", type=int, default=50,
                         help="The dimension we are adding/ reducing from that certain layer")
     parser.add_argument("--add-dimension", type=bool, default=False,
                         help="Default: the amount is subtracted. Add the param: True, to add dimension")
@@ -138,6 +138,9 @@ def main() -> None:
 
     args = argparser()
 
+    print(f"current argunemts are: layer: {args.slice_layer} and type {type(args.slice_layer)}"
+          f"\n with the slicing dimension {args.slice_dimension} and type {type(args.slice_dimension)}"
+          f"\n with the add_dimension: {args.add_dimension} and type {type(args.add_dimension)}")
     logging.info(f"PyTorch device: {config.device}")
     logging.info(f"Number of available cuda devices: {torch.cuda.device_count()}")
 
