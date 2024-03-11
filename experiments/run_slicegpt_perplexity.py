@@ -1,6 +1,10 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
+import os
+os.environ["WANDB_SERVICE_WAIT"] = "300"
+os.environ['TRANSFORMERS_CACHE'] = '/storage/paulclotan/SmartSliceGPT/models'
+
 import argparse
 import logging
 import os
@@ -97,6 +101,15 @@ def argparser() -> argparse.Namespace:
         default=None,
         help="PyTorch device to use. Example values are 'cpu', 'cuda', 'cuda:0'. If not specified it will be defaulted to 'cuda' if available and 'cpu' otherwise.",
     )
+
+    # add arguments to set the slicing size and what layer we are currently slicing
+
+    parser.add_argument("--slice-layer", type=int, default=0, help="The layer we are currently slicing.")
+    parser.add_argument("--slice-dimension", type=int, default=20,
+                        help="The dimension we are adding/ reducing from that certain layer")
+    parser.add_argument("--add-dimension", type=bool, default=False,
+                        help="Default: the amount is subtracted. Add the param: True, to add dimension")
+
 
     args = parser.parse_args()
 
@@ -223,7 +236,8 @@ def main() -> None:
     )
 
     ignore_tokens = [tokenizer.pad_token_id]
-    rotate.rotate_and_slice(model_adapter, train_loader, new_embedding_dimension, ignore_tokens=ignore_tokens)
+    rotate.rotate_and_slice(model_adapter, train_loader, args.slice_layer, args.slice_dimension,
+                            args.add_dimension, new_embedding_dimension, ignore_tokens=ignore_tokens)
 
     if args.save_dir:
         if not os.path.exists(args.save_dir):
