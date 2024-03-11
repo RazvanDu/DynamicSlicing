@@ -70,6 +70,7 @@ class CompressedPhiDecoderLayer(PhiDecoderLayer):
 
         if self.attn_shortcut_Q is not None:
             rotated_residual = matmul(residual, self.attn_shortcut_Q)
+            #print("X", residual.shape, self.attn_shortcut_Q.shape, attn_outputs.shape, feed_forward_hidden_states.shape, rotated_residual.shape)
             hidden_states = attn_outputs + feed_forward_hidden_states + rotated_residual
         else:
             hidden_states = attn_outputs + feed_forward_hidden_states + residual
