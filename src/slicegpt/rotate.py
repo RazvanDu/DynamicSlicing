@@ -36,6 +36,9 @@ def slicing_vector_generation(nr_layers, initial_dimension):
 
     return new_dim_adjusted
 '''
+
+'''
+// slicing a single layer, one by one with given parameters to the script.
 def slice_particular_layer(nr_layers, initial_dimension, layer_number, amount, add_or_substract):
     # Create a vector with all elements set to the initial_dimension
     cut_dimension = initial_dimension * 0.7 # 0.7
@@ -55,6 +58,56 @@ def slice_particular_layer(nr_layers, initial_dimension, layer_number, amount, a
         #print(f"The new dim of the layer was added, new dim:{new_dim[layer_number]}")
 
     new_dim = np.round(new_dim).astype(int)
+
+    return new_dim
+'''
+#manual testing
+def slice_particular_layer(nr_layers, initial_dimension, layer_number, amount, add_or_substract):
+    # Create a vector with all elements set to the initial_dimension
+    cut_dimension = initial_dimension * 0.7 # 0.7
+    #print(initial_dimension, cut_dimension)
+    new_dim = np.full(nr_layers + 1, cut_dimension)
+
+    # Check if the layer_number is within the range of the layers
+
+    # Modify the dimension of the specified layer based on the add_or_substract parameter
+    #print(f"add or substract is: {add_or_substract}, with the type: {type(add_or_substract)}")
+    if add_or_substract == False:
+        # Ensure that the layer dimension cannot be less than 0 after subtraction
+        new_dim[layer_number] = max(new_dim[layer_number] - amount, 0)
+        #print(f"The new dim of the layer was substracted, new dim:{new_dim[layer_number]}")
+    else:
+        new_dim[layer_number] += amount
+        #print(f"The new dim of the layer was added, new dim:{new_dim[layer_number]}")
+
+
+
+    #best perplexities for +20, -20
+    #new_dim[4] += 20
+    #new_dim[19] -= 20
+
+    # best perplexities for +50, -50
+    #new_dim[31] += 50
+    #new_dim[19] -= 50
+
+    # best perplexities for +100, -100
+    #new_dim[31] += 100
+    #new_dim[19] -= 100
+
+    # best perplexities for +100, -100
+    #new_dim[31] += 250
+    #new_dim[19] -= 250
+
+    #teste cu layer 1 si 0 inclus in minim
+
+    # best perplexities for +100, -100
+    #new_dim[0] += 20
+    #new_dim[19] -= 20
+
+
+    new_dim = np.round(new_dim).astype(int)
+
+    print(f"hardcoded vector version for testing the perplexity: {new_dim}" )
 
     return new_dim
 
