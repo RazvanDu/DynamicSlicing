@@ -138,6 +138,9 @@ def main() -> None:
 
     args = argparser()
 
+    print(f"current argunemts are: layer: {args.slice_layer} and type {type(args.slice_layer)}"
+          f"\n with the slicing dimension {args.slice_dimension} and type {type(args.slice_dimension)}"
+          f"\n with the add_dimension: {args.add_dimension} and type {type(args.add_dimension)}")
     logging.info(f"PyTorch device: {config.device}")
     logging.info(f"Number of available cuda devices: {torch.cuda.device_count()}")
 
