@@ -78,14 +78,13 @@ def slice_particular_layer(nr_layers, initial_dimension, layer_number, amount, a
     # Check if the layer_number is within the range of the layers
 
     # Modify the dimension of the specified layer based on the add_or_substract parameter
-    #print(f"add or substract is: {add_or_substract}, with the type: {type(add_or_substract)}")
-    #if add_or_substract == False:
-        # Ensure that the layer dimension cannot be less than 0 after subtraction
-    #    new_dim[layer_number] = max(new_dim[layer_number] - amount, 0)
-        #print(f"The new dim of the layer was substracted, new dim:{new_dim[layer_number]}")
-    #else:
-    #    new_dim[layer_number] += amount
-        #print(f"The new dim of the layer was added, new dim:{new_dim[layer_number]}")
+    print(f"add or substract is: {add_or_substract}, with the type: {type(add_or_substract)}")
+    if not add_or_substract:
+        new_dim[layer_number] = max(new_dim[layer_number] - amount, 0)
+        print(f"The new dim of the layer was substracted, new dim:{new_dim[layer_number]}")
+    else:
+        new_dim[layer_number] += amount
+        print(f"The new dim of the layer was added, new dim:{new_dim[layer_number]}")
 
 
 
@@ -120,8 +119,8 @@ def slice_particular_layer(nr_layers, initial_dimension, layer_number, amount, a
     #new_dim[1] -= 100
 
     # best perplexities for +250, -250
-    new_dim[0] += 250
-    new_dim[1] -= 250
+    #new_dim[0] += 250
+    #new_dim[1] -= 250
 
 
     new_dim = np.round(new_dim).astype(int)
@@ -307,13 +306,13 @@ def rotate_and_slice_sequential(
     logging.info("Rotate and slice layers")
     layers = model_adapter.get_layers()
 
-    #new_dimensions = slice_particular_layer(len(layers), model_adapter.hidden_size, slice_layer_number, slice_dimension,
-    #                                        add_dimension)
+    new_dimensions = slice_particular_layer(len(layers), model_adapter.hidden_size, slice_layer_number, slice_dimension,
+                                            add_dimension)
     #new_dimensions = slicing_vector_generation(len(layers), model_adapter.hidden_size)
 
     #print(f"the new dimensions are: {new_dimensions}")
 
-    new_dimensions = read_slicing_dimensions()
+    #new_dimensions = read_slicing_dimensions()
     print(new_dimensions)
     rotate_embeddings(model_adapter, Q)
     slice_embeddings2(model_adapter, new_dimensions)
@@ -420,13 +419,13 @@ def rotate_and_slice_parallel(
     logging.info("Rotate and slice layers")
     layers = model_adapter.get_layers()
 
-    #new_dimensions = slice_particular_layer(len(layers), model_adapter.hidden_size, slice_layer_number, slice_dimension,
-    #                                        add_dimension)
+    new_dimensions = slice_particular_layer(len(layers), model_adapter.hidden_size, slice_layer_number, slice_dimension,
+                                            add_dimension)
     #new_dimensions = slicing_vector_generation(len(layers), model_adapter.hidden_size)
 
     #print(f"the new dimensions are: {new_dimensions}")
 
-    new_dimensions = read_slicing_dimensions()
+    #new_dimensions = read_slicing_dimensions()
     print(new_dimensions)
     rotate_embeddings(model_adapter, Q)
     slice_embeddings2(model_adapter, new_dimensions)
