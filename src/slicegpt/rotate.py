@@ -228,8 +228,8 @@ def slice_embeddings2(model_adapter: ModelAdapter, new_embedding_dimensions: np.
     # Slice the embeddings
     print("IDK ", model_adapter.get_embeddings())
     for i, W in enumerate(model_adapter.get_embeddings()):
-        print("LOOKING AT LAYER ", i, new_embedding_dimensions[i])
-        W.weight.data = W.weight.data[:, :i]
+        #print("LOOKING AT LAYER ", i, new_embedding_dimensions[i])
+        W.weight.data = W.weight.data[:, :new_embedding_dimensions[0]]
         logging.info(W.weight.data.shape)
         #print(f"Slice emb- dimension {W.weight.data.shape}")
 
@@ -332,12 +332,12 @@ def rotate_and_slice_sequential(
 
         # rotate and slice the attention inputs to match previous layer
         rotate_attention_inputs(layer_adapter, Q)
-        slice_attention_inputs(layer_adapter, 1) # match matmul part
+        slice_attention_inputs(layer_adapter, new_imp_emb_dimension) # match matmul part
 
         # get signal between attention and mlp, rotate and slice
         for i, inp in enumerate(inps):
             args[i] = layer_adapter.get_updated_args(
-                torch.matmul(inp.to(device=config.device), Q.to(dtype=dtype))[:, :, :1].cpu(),
+                torch.matmul(inp.to(device=config.device), Q.to(dtype=dtype))[:, :, :new_imp_emb_dimension].cpu(),
                 args[i],
             )
 
@@ -345,15 +345,15 @@ def rotate_and_slice_sequential(
         _, Q = pca_calc(mlp_ln_inputs, ignore_masks)
         Q = Q.to(device=config.device, dtype=torch.float64)
 
-        layer.attn_shortcut_Q = torch.matmul(layer.attn_shortcut_Q, Q.to(dtype=dtype)[:, :3]) # match 2 lines below
+        layer.attn_shortcut_Q = torch.matmul(layer.attn_shortcut_Q, Q.to(dtype=dtype)[:, :new_imp_emb_dimension]) # match 2 lines below
         rotate_attention_output(layer_adapter, Q)
-        slice_attention_output(layer_adapter, 3) # this must match slice_mlp_input
+        slice_attention_output(layer_adapter, new_imp_emb_dimension) # this must match slice_mlp_input
 
         print("TEST ", new_imp_emb_dimension, new_out_emb_dimension)
 
-        layer.mlp_shortcut_Q = Q.T.clone().to(dtype=dtype)[:3, :]
+        layer.mlp_shortcut_Q = Q.T.clone().to(dtype=dtype)[:new_imp_emb_dimension, :]
         rotate_mlp_input(layer_adapter, Q)
-        slice_mlp_input(layer_adapter, 3)
+        slice_mlp_input(layer_adapter, new_imp_emb_dimension)
         _, inps = get_signals(layer_adapter, args, kwargs)
 
         # Run GC and cleanup GPU memory
@@ -367,10 +367,10 @@ def rotate_and_slice_sequential(
         layer.mlp_shortcut_Q = torch.matmul(layer.mlp_shortcut_Q, Q.to(dtype=dtype))
         # optionally slice the mlp/head connection in the last layer
 
-        dim = 4
+        dim = new_out_emb_dimension
         if layer_adapter is layers[-1]:
             if not do_slice_head:
-                dim = 5
+                dim = model_adapter.hidden_size
 
         rotate_mlp_output(layer_adapter, Q)
         slice_mlp_output(layer_adapter, dim)
