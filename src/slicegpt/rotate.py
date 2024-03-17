@@ -13,12 +13,19 @@ from .model_adapter import LayerAdapter, ModelAdapter
 from .model_utils import get_layer0_inputs, get_signals
 from .utils import cleanup_memory, map_tensors
 
+'''
 def slicing_vector_generation(nr_layers, initial_dimension):
     new_dim = []
     for n_layer in range(nr_layers + 1):
         new_dim.append(initial_dimension - ((30 / 100 - n_layer / nr_layers * 20 / 100) * initial_dimension))
     new_dim = np.array(new_dim).astype('int')
     return new_dim
+'''
+def read_slicing_dimensions():
+    file_path = "/storage/paulclotan/SmartSliceGPT/experiment_cut_search/layer_dimensions.txt"
+    with open(file_path, 'r') as file:
+        new_dim = [int(line.strip()) for line in file.readlines()]
+    return np.array(new_dim)
 '''
 def slicing_vector_generation(nr_layers, initial_dimension):
     target_avg_value = initial_dimension * 0.7  # 30% reduction target
@@ -72,12 +79,12 @@ def slice_particular_layer(nr_layers, initial_dimension, layer_number, amount, a
 
     # Modify the dimension of the specified layer based on the add_or_substract parameter
     #print(f"add or substract is: {add_or_substract}, with the type: {type(add_or_substract)}")
-    if add_or_substract == False:
+    #if add_or_substract == False:
         # Ensure that the layer dimension cannot be less than 0 after subtraction
-        new_dim[layer_number] = max(new_dim[layer_number] - amount, 0)
+    #    new_dim[layer_number] = max(new_dim[layer_number] - amount, 0)
         #print(f"The new dim of the layer was substracted, new dim:{new_dim[layer_number]}")
-    else:
-        new_dim[layer_number] += amount
+    #else:
+    #    new_dim[layer_number] += amount
         #print(f"The new dim of the layer was added, new dim:{new_dim[layer_number]}")
 
 
@@ -100,9 +107,21 @@ def slice_particular_layer(nr_layers, initial_dimension, layer_number, amount, a
 
     #teste cu layer 1 si 0 inclus in minim
 
-    # best perplexities for +100, -100
+    # best perplexities for +20, -20
     #new_dim[0] += 20
     #new_dim[19] -= 20
+
+    # best perplexities for +20, -20
+    #new_dim[31] += 50
+    #new_dim[19] -= 50
+
+    # best perplexities for +100, -100
+    #new_dim[0] += 100
+    #new_dim[1] -= 100
+
+    # best perplexities for +250, -250
+    new_dim[0] += 250
+    new_dim[1] -= 250
 
 
     new_dim = np.round(new_dim).astype(int)
@@ -207,8 +226,10 @@ def slice_embeddings(model_adapter: ModelAdapter, new_embedding_dimension: int) 
 ######## poate pusca
 def slice_embeddings2(model_adapter: ModelAdapter, new_embedding_dimensions: np.array) -> None:
     # Slice the embeddings
+    print("IDK ", model_adapter.get_embeddings())
     for i, W in enumerate(model_adapter.get_embeddings()):
-        W.weight.data = W.weight.data[:, : new_embedding_dimensions[i]]
+        print("LOOKING AT LAYER ", i, new_embedding_dimensions[i])
+        W.weight.data = W.weight.data[:, :i]
         logging.info(W.weight.data.shape)
         #print(f"Slice emb- dimension {W.weight.data.shape}")
 
@@ -247,13 +268,17 @@ def rotate_and_slice(
         rotate_and_slice_parallel(model_adapter, dataloader, slice_layer_number, slice_dimension,
                                   add_dimension, new_embedding_dimension, do_slice_head, ignore_tokens)
     else:
-        rotate_and_slice_sequential(model_adapter, dataloader, new_embedding_dimension, do_slice_head, ignore_tokens)
+        rotate_and_slice_sequential(model_adapter, dataloader, slice_layer_number, slice_dimension,
+                                                                      add_dimension, new_embedding_dimension, do_slice_head, ignore_tokens)
 
 
 @torch.no_grad()
 def rotate_and_slice_sequential(
     model_adapter: ModelAdapter,
     dataloader: torch.utils.data.DataLoader[torch.Tensor],
+    slice_layer_number: int,
+    slice_dimension: int,
+    add_dimension: bool,
     new_embedding_dimension: int,
     do_slice_head: bool = False,
     ignore_tokens: list[int] | None = None,
@@ -280,23 +305,39 @@ def rotate_and_slice_sequential(
     _, Q = pca_calc(inps, ignore_masks)
     Q = Q.to(device=config.device)
 
-    rotate_embeddings(model_adapter, Q)
-    slice_embeddings(model_adapter, new_embedding_dimension)
-
     logging.info("Rotate and slice layers")
     layers = model_adapter.get_layers()
-    for layer_adapter in tqdm(layers, unit="layer", desc="Rotating and slicing"):
+
+    #new_dimensions = slice_particular_layer(len(layers), model_adapter.hidden_size, slice_layer_number, slice_dimension,
+    #                                        add_dimension)
+    #new_dimensions = slicing_vector_generation(len(layers), model_adapter.hidden_size)
+
+    #print(f"the new dimensions are: {new_dimensions}")
+
+    new_dimensions = read_slicing_dimensions()
+    print(new_dimensions)
+    rotate_embeddings(model_adapter, Q)
+    slice_embeddings2(model_adapter, new_dimensions)
+
+    print("SLICING HERE!")
+
+    logging.info("Rotate and slice layers")
+    #layers = model_adapter.get_layers()
+    for idx, layer_adapter in enumerate(tqdm(layers, unit="layer", desc="Rotating and slicing")):
         layer = layer_adapter.layer
         layer.attn_shortcut_Q = Q.T.clone().to(dtype=dtype)
 
+        new_imp_emb_dimension = new_dimensions[idx]
+        new_out_emb_dimension = new_dimensions[idx + 1]
+
         # rotate and slice the attention inputs to match previous layer
         rotate_attention_inputs(layer_adapter, Q)
-        slice_attention_inputs(layer_adapter, new_embedding_dimension)
+        slice_attention_inputs(layer_adapter, 1) # match matmul part
 
         # get signal between attention and mlp, rotate and slice
         for i, inp in enumerate(inps):
             args[i] = layer_adapter.get_updated_args(
-                torch.matmul(inp.to(device=config.device), Q.to(dtype=dtype))[:, :, :new_embedding_dimension].cpu(),
+                torch.matmul(inp.to(device=config.device), Q.to(dtype=dtype))[:, :, :1].cpu(),
                 args[i],
             )
 
@@ -304,13 +345,16 @@ def rotate_and_slice_sequential(
         _, Q = pca_calc(mlp_ln_inputs, ignore_masks)
         Q = Q.to(device=config.device, dtype=torch.float64)
 
-        layer.attn_shortcut_Q = torch.matmul(layer.attn_shortcut_Q, Q.to(dtype=dtype)[:, :new_embedding_dimension])
+        layer.attn_shortcut_Q = torch.matmul(layer.attn_shortcut_Q, Q.to(dtype=dtype)[:, :3]) # match 2 lines below
         rotate_attention_output(layer_adapter, Q)
-        slice_attention_output(layer_adapter, new_embedding_dimension)
+        slice_attention_output(layer_adapter, 3) # this must match slice_mlp_input
 
-        layer.mlp_shortcut_Q = Q.T.clone().to(dtype=dtype)[:new_embedding_dimension, :]
+        print("TEST ", new_imp_emb_dimension, new_out_emb_dimension)
+
+        layer.mlp_shortcut_Q = Q.T.clone().to(dtype=dtype)[:3, :]
         rotate_mlp_input(layer_adapter, Q)
-        slice_mlp_input(layer_adapter, new_embedding_dimension)
+        slice_mlp_input(layer_adapter, 3)
+        _, inps = get_signals(layer_adapter, args, kwargs)
 
         # Run GC and cleanup GPU memory
         cleanup_memory()
@@ -321,12 +365,12 @@ def rotate_and_slice_sequential(
         _, Q = pca_calc(inps, ignore_masks)
 
         layer.mlp_shortcut_Q = torch.matmul(layer.mlp_shortcut_Q, Q.to(dtype=dtype))
-
         # optionally slice the mlp/head connection in the last layer
-        dim = new_embedding_dimension
+
+        dim = 4
         if layer_adapter is layers[-1]:
             if not do_slice_head:
-                dim = model_adapter.hidden_size
+                dim = 5
 
         rotate_mlp_output(layer_adapter, Q)
         slice_mlp_output(layer_adapter, dim)
@@ -340,7 +384,7 @@ def rotate_and_slice_sequential(
     # rotate and slice head
     rotate_head(model_adapter, Q)
     if do_slice_head:
-        slice_head(model_adapter, new_embedding_dimension)
+        slice_head(model_adapter, new_dimensions[-1])
 
     logging.info("Rotate and slice layers done")
 
@@ -381,12 +425,14 @@ def rotate_and_slice_parallel(
     logging.info("Rotate and slice layers")
     layers = model_adapter.get_layers()
 
-    new_dimensions = slice_particular_layer(len(layers), model_adapter.hidden_size, slice_layer_number, slice_dimension,
-                                            add_dimension)
+    #new_dimensions = slice_particular_layer(len(layers), model_adapter.hidden_size, slice_layer_number, slice_dimension,
+    #                                        add_dimension)
     #new_dimensions = slicing_vector_generation(len(layers), model_adapter.hidden_size)
 
     #print(f"the new dimensions are: {new_dimensions}")
 
+    new_dimensions = read_slicing_dimensions()
+    print(new_dimensions)
     rotate_embeddings(model_adapter, Q)
     slice_embeddings2(model_adapter, new_dimensions)
 
