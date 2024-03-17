@@ -226,7 +226,6 @@ def slice_embeddings(model_adapter: ModelAdapter, new_embedding_dimension: int) 
 ######## poate pusca
 def slice_embeddings2(model_adapter: ModelAdapter, new_embedding_dimensions: np.array) -> None:
     # Slice the embeddings
-    print("IDK ", model_adapter.get_embeddings())
     for i, W in enumerate(model_adapter.get_embeddings()):
         #print("LOOKING AT LAYER ", i, new_embedding_dimensions[i])
         W.weight.data = W.weight.data[:, :new_embedding_dimensions[0]]
@@ -319,8 +318,6 @@ def rotate_and_slice_sequential(
     rotate_embeddings(model_adapter, Q)
     slice_embeddings2(model_adapter, new_dimensions)
 
-    print("SLICING HERE!")
-
     logging.info("Rotate and slice layers")
     #layers = model_adapter.get_layers()
     for idx, layer_adapter in enumerate(tqdm(layers, unit="layer", desc="Rotating and slicing")):
@@ -348,8 +345,6 @@ def rotate_and_slice_sequential(
         layer.attn_shortcut_Q = torch.matmul(layer.attn_shortcut_Q, Q.to(dtype=dtype)[:, :new_imp_emb_dimension]) # match 2 lines below
         rotate_attention_output(layer_adapter, Q)
         slice_attention_output(layer_adapter, new_imp_emb_dimension) # this must match slice_mlp_input
-
-        print("TEST ", new_imp_emb_dimension, new_out_emb_dimension)
 
         layer.mlp_shortcut_Q = Q.T.clone().to(dtype=dtype)[:new_imp_emb_dimension, :]
         rotate_mlp_input(layer_adapter, Q)
