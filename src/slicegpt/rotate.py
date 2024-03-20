@@ -67,7 +67,7 @@ def slice_particular_layer(nr_layers, initial_dimension, layer_number, amount, a
     new_dim = np.round(new_dim).astype(int)
 
     return new_dim
-'''
+
 #manual testing
 def slice_particular_layer(nr_layers, initial_dimension, layer_number, amount, add_or_substract):
     # Create a vector with all elements set to the initial_dimension
@@ -78,7 +78,7 @@ def slice_particular_layer(nr_layers, initial_dimension, layer_number, amount, a
     # Check if the layer_number is within the range of the layers
 
     # Modify the dimension of the specified layer based on the add_or_substract parameter
-    print(f"add or substract is: {add_or_substract}, with the type: {type(add_or_substract)}")
+    #print(f"add or substract is: {add_or_substract}, with the type: {type(add_or_substract)}")
     if not add_or_substract:
         new_dim[layer_number] = max(new_dim[layer_number] - amount, 0)
         print(f"The new dim of the layer was substracted, new dim:{new_dim[layer_number]}")
@@ -86,46 +86,26 @@ def slice_particular_layer(nr_layers, initial_dimension, layer_number, amount, a
         new_dim[layer_number] += amount
         print(f"The new dim of the layer was added, new dim:{new_dim[layer_number]}")
 
+    new_dim = np.round(new_dim).astype(int)
+
+    #print(f"hardcoded vector version for testing the perplexity: {new_dim}" )
+
+    return new_dim
+'''
+def slice_particular_layer_percent(nr_layers, initial_dimension, layer_number, percentage):
+
+    new_dim = np.full(nr_layers + 1, initial_dimension)
 
 
-    #best perplexities for +20, -20
-    #new_dim[4] += 20
-    #new_dim[19] -= 20
+    new_dimension = initial_dimension * (1 - percentage)
 
-    # best perplexities for +50, -50
-    #new_dim[31] += 50
-    #new_dim[19] -= 50
+    print(f"The new dimension will be: {new_dimension}, with initial dimension {initial_dimension}, and cut percent: {percentage}")
 
-    # best perplexities for +100, -100
-    #new_dim[31] += 100
-    #new_dim[19] -= 100
-
-    # best perplexities for +100, -100
-    #new_dim[31] += 250
-    #new_dim[19] -= 250
-
-    #teste cu layer 1 si 0 inclus in minim
-
-    # best perplexities for +20, -20
-    #new_dim[0] += 20
-    #new_dim[19] -= 20
-
-    # best perplexities for +20, -20
-    #new_dim[31] += 50
-    #new_dim[19] -= 50
-
-    # best perplexities for +100, -100
-    #new_dim[0] += 100
-    #new_dim[1] -= 100
-
-    # best perplexities for +250, -250
-    #new_dim[0] += 250
-    #new_dim[1] -= 250
-
+    new_dim[layer_number] = new_dimension
 
     new_dim = np.round(new_dim).astype(int)
 
-    print(f"hardcoded vector version for testing the perplexity: {new_dim}" )
+    print(f"\n The new vector will be: {new_dim}")
 
     return new_dim
 
@@ -247,13 +227,11 @@ def slice_head(model_adapter: ModelAdapter, new_embedding_dimension: int) -> Non
 
     #print(f"Slice head- dimension {lm_head.weight.data.shape}")
 
-
 def rotate_and_slice(
     model_adapter: ModelAdapter,
     dataloader: torch.utils.data.DataLoader[torch.Tensor],
     slice_layer_number: int,
-    slice_dimension: int,
-    add_dimension: bool,
+    slice_percentage: float,
     new_embedding_dimension: int,
     do_slice_head: bool = False,
     ignore_tokens: list[int] | None = None,
@@ -263,11 +241,11 @@ def rotate_and_slice(
     """
     if model_adapter.parallel_blocks:
 
-        rotate_and_slice_parallel(model_adapter, dataloader, slice_layer_number, slice_dimension,
-                                  add_dimension, new_embedding_dimension, do_slice_head, ignore_tokens)
+        rotate_and_slice_parallel(model_adapter, dataloader, slice_layer_number, slice_percentage,
+                                new_embedding_dimension, do_slice_head, ignore_tokens)
     else:
-        rotate_and_slice_sequential(model_adapter, dataloader, slice_layer_number, slice_dimension,
-                                                                      add_dimension, new_embedding_dimension, do_slice_head, ignore_tokens)
+        rotate_and_slice_sequential(model_adapter, dataloader, slice_layer_number, slice_percentage,
+                                new_embedding_dimension, do_slice_head, ignore_tokens)
 
 
 @torch.no_grad()
@@ -275,8 +253,7 @@ def rotate_and_slice_sequential(
     model_adapter: ModelAdapter,
     dataloader: torch.utils.data.DataLoader[torch.Tensor],
     slice_layer_number: int,
-    slice_dimension: int,
-    add_dimension: bool,
+    slice_percentage: float,
     new_embedding_dimension: int,
     do_slice_head: bool = False,
     ignore_tokens: list[int] | None = None,
@@ -306,14 +283,10 @@ def rotate_and_slice_sequential(
     logging.info("Rotate and slice layers")
     layers = model_adapter.get_layers()
 
-    new_dimensions = slice_particular_layer(len(layers), model_adapter.hidden_size, slice_layer_number, slice_dimension,
-                                            add_dimension)
-    #new_dimensions = slicing_vector_generation(len(layers), model_adapter.hidden_size)
-
-    #print(f"the new dimensions are: {new_dimensions}")
+    new_dimensions =slice_particular_layer_percent(len(layers), model_adapter.hidden_size, slice_layer_number,
+                                                   slice_percentage)
 
     #new_dimensions = read_slicing_dimensions()
-    print(new_dimensions)
     rotate_embeddings(model_adapter, Q)
     slice_embeddings2(model_adapter, new_dimensions)
 
@@ -388,8 +361,7 @@ def rotate_and_slice_parallel(
     model_adapter: ModelAdapter,
     dataloader: torch.utils.data.DataLoader[torch.Tensor],
     slice_layer_number: int,
-    slice_dimension: int,
-    add_dimension: bool,
+    slice_percentage: float,
     new_embedding_dimension: int,
     do_slice_head: bool = False,
     ignore_tokens: list[int] | None = None,
@@ -419,14 +391,8 @@ def rotate_and_slice_parallel(
     logging.info("Rotate and slice layers")
     layers = model_adapter.get_layers()
 
-    new_dimensions = slice_particular_layer(len(layers), model_adapter.hidden_size, slice_layer_number, slice_dimension,
-                                            add_dimension)
-    #new_dimensions = slicing_vector_generation(len(layers), model_adapter.hidden_size)
-
-    #print(f"the new dimensions are: {new_dimensions}")
-
-    #new_dimensions = read_slicing_dimensions()
-    print(new_dimensions)
+    new_dimensions = slice_particular_layer_percent(len(layers), model_adapter.hidden_size, slice_layer_number,
+                                                    slice_percentage)
     rotate_embeddings(model_adapter, Q)
     slice_embeddings2(model_adapter, new_dimensions)
 
@@ -639,3 +605,4 @@ def pca_calc(
     eig_val = X_eig[0][index]
     eigen_vec = X_eig[1][:, index]
     return eig_val, eigen_vec
+

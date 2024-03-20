@@ -105,10 +105,12 @@ def argparser() -> argparse.Namespace:
     # add arguments to set the slicing size and what layer we are currently slicing
 
     parser.add_argument("--slice-layer", type=int, default=1, help="The layer we are currently slicing.")
-    parser.add_argument("--slice-dimension", type=int, default=50,
-                        help="The dimension we are adding/ reducing from that certain layer")
-    parser.add_argument("--add-dimension", type=bool, default=False,
-                        help="Default: the amount is subtracted. Add the param: True, to add dimension")
+    parser.add_argument("--slice-percentage", type=float, default=0,
+                        help="Percentage we cut from the original model")
+    #parser.add_argument("--slice-dimension", type=int, default=50,
+    #                    help="The dimension we are adding/ reducing from that certain layer")
+    #parser.add_argument("--add-dimension", type=bool, default=False,
+    #                    help="Default: the amount is subtracted. Add the param: True, to add dimension")
 
 
     args = parser.parse_args()
@@ -119,6 +121,9 @@ def argparser() -> argparse.Namespace:
 
     if not 0 <= args.sparsity < 1:
         raise argparse.ArgumentTypeError(f"Sparsity should be in the range [0, 1)")
+
+    if not 0 <= args.slice_percentage < 1:
+        raise argparse.ArgumentTypeError(f"The cut percentage must be in the interval [0,1)")
 
     if args.device:
         config.device = torch.device(args.device)
@@ -137,10 +142,14 @@ def main() -> None:
     logging.info("Running SliceGPT perplexity experiment")
 
     args = argparser()
-
+    '''
     print(f"current argunemts are: layer: {args.slice_layer} and type {type(args.slice_layer)}"
-          f"\n with the slicing dimension {args.slice_dimension} and type {type(args.slice_dimension)}"
-          f"\n with the add_dimension: {args.add_dimension} and type {type(args.add_dimension)}")
+          f"\n with the slicing dimension {args.slice_dimension} "
+          f"\n with the add_dimension: {args.add_dimension}"
+          f"\nrunning on the device: {config.device}"
+          f"\nmodel: {args.model}"
+          f"\ndataset: {args.cal_dataset}")
+    '''
     logging.info(f"PyTorch device: {config.device}")
     logging.info(f"Number of available cuda devices: {torch.cuda.device_count()}")
 
@@ -234,13 +243,16 @@ def main() -> None:
     new_embedding_dimension = int((1 - args.sparsity) * model_adapter.hidden_size)
     # round (down) to the nearest multiple of round_interval
     new_embedding_dimension = new_embedding_dimension - (new_embedding_dimension % args.round_interval)
-    logging.info(
-        f"New embedding dimension: {new_embedding_dimension} (sparsity {100*(1 - new_embedding_dimension / model_adapter.hidden_size):.4f} %)"
-    )
+    #logging.info(
+    #    f"New embedding dimension: {new_embedding_dimension} (sparsity {100*(1 - new_embedding_dimension / model_adapter.hidden_size):.4f} %)"
+    #)
 
     ignore_tokens = [tokenizer.pad_token_id]
-    rotate.rotate_and_slice(model_adapter, train_loader, args.slice_layer, args.slice_dimension,
-                            args.add_dimension, new_embedding_dimension, ignore_tokens=ignore_tokens)
+    rotate.rotate_and_slice(model_adapter, train_loader, args.slice_layer, args.slice_percentage, new_embedding_dimension,
+                            ignore_tokens=ignore_tokens)
+    #rotate.rotate_and_slice(model_adapter, train_loader, args.slice_layer, args.slice_dimension,
+    #                        args.add_dimension, new_embedding_dimension, ignore_tokens=ignore_tokens)
+    # used to cut layer by layer,+- a given quantity
 
     if args.save_dir:
         if not os.path.exists(args.save_dir):
