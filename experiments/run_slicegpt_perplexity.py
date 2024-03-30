@@ -112,6 +112,14 @@ def argparser() -> argparse.Namespace:
     #parser.add_argument("--add-dimension", type=bool, default=False,
     #                    help="Default: the amount is subtracted. Add the param: True, to add dimension")
 
+    #parse the vector
+    parser.add_argument(
+        "--vector-cut",
+        type=float,
+        nargs='+',
+        help="Vector of integers, representing the new cutting dimensions",
+        default=[0]  # Default to a vector containing a single zero, adjust as necessary
+    )
 
     args = parser.parse_args()
 
@@ -172,7 +180,7 @@ def main() -> None:
         model_adapter, tokenizer = hf_utils.get_model_and_tokenizer(args.model, token=args.hf_token, dtype=config.dtype)
 
     model = model_adapter.model
-
+    print(f"new cutting dimensions are {args.vector_cut}")
     def reset_model_device() -> None:
         if args.distribute_model:
             # distribute model across available GPUs
@@ -248,7 +256,8 @@ def main() -> None:
     #)
 
     ignore_tokens = [tokenizer.pad_token_id]
-    rotate.rotate_and_slice(model_adapter, train_loader, args.slice_layer, args.slice_percentage, new_embedding_dimension,
+    rotate.rotate_and_slice(model_adapter, train_loader, args.vector_cut,
+                            args.slice_layer, args.slice_percentage, new_embedding_dimension,
                             ignore_tokens=ignore_tokens)
     #rotate.rotate_and_slice(model_adapter, train_loader, args.slice_layer, args.slice_dimension,
     #                        args.add_dimension, new_embedding_dimension, ignore_tokens=ignore_tokens)

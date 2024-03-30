@@ -92,6 +92,9 @@ def slice_particular_layer(nr_layers, initial_dimension, layer_number, amount, a
 
     return new_dim
 '''
+'''
+FUNCTION TO PERFORM PERCENTUAL CUT PER LAYER
+'''
 def slice_particular_layer_percent(nr_layers, initial_dimension, layer_number, percentage):
 
     new_dim = np.full(nr_layers + 1, initial_dimension)
@@ -105,9 +108,22 @@ def slice_particular_layer_percent(nr_layers, initial_dimension, layer_number, p
 
     new_dim = np.round(new_dim).astype(int)
 
-    print(f"\n The new vector will be: {new_dim}")
+    print(f"The new vector will be: {new_dim}")
 
     return new_dim
+
+def get_slice_dimension_by_cut_vector(initial_dimension, vector_cut):
+
+    new_dim = np.array(vector_cut) * initial_dimension
+
+    print(f"New vector will be: {new_dim}")
+
+    new_dim = np.round(new_dim).astype(int)
+
+    print(f"The new vector will be: {new_dim}")
+
+    return new_dim
+
 
 def rotate_attention_inputs(layer_adapter: LayerAdapter, Q: torch.Tensor) -> None:
     # Rotate the WQ, WK and WV matrices of the self-attention layer.
@@ -230,6 +246,7 @@ def slice_head(model_adapter: ModelAdapter, new_embedding_dimension: int) -> Non
 def rotate_and_slice(
     model_adapter: ModelAdapter,
     dataloader: torch.utils.data.DataLoader[torch.Tensor],
+    cut_vector: list,
     slice_layer_number: int,
     slice_percentage: float,
     new_embedding_dimension: int,
@@ -241,10 +258,10 @@ def rotate_and_slice(
     """
     if model_adapter.parallel_blocks:
 
-        rotate_and_slice_parallel(model_adapter, dataloader, slice_layer_number, slice_percentage,
+        rotate_and_slice_parallel(model_adapter, dataloader, cut_vector, slice_layer_number, slice_percentage,
                                 new_embedding_dimension, do_slice_head, ignore_tokens)
     else:
-        rotate_and_slice_sequential(model_adapter, dataloader, slice_layer_number, slice_percentage,
+        rotate_and_slice_sequential(model_adapter, dataloader, cut_vector ,slice_layer_number, slice_percentage,
                                 new_embedding_dimension, do_slice_head, ignore_tokens)
 
 
@@ -252,6 +269,7 @@ def rotate_and_slice(
 def rotate_and_slice_sequential(
     model_adapter: ModelAdapter,
     dataloader: torch.utils.data.DataLoader[torch.Tensor],
+    cut_vector: list,
     slice_layer_number: int,
     slice_percentage: float,
     new_embedding_dimension: int,
@@ -286,7 +304,9 @@ def rotate_and_slice_sequential(
     new_dimensions =slice_particular_layer_percent(len(layers), model_adapter.hidden_size, slice_layer_number,
                                                    slice_percentage)
 
-    #new_dimensions = read_slicing_dimensions()
+    #new_dimensions = get_slice_dimension_by_cut_vector(model_adapter.hidden_size, cut_vector)
+    print(new_dimensions)
+
     rotate_embeddings(model_adapter, Q)
     slice_embeddings2(model_adapter, new_dimensions)
 
@@ -360,6 +380,7 @@ def rotate_and_slice_sequential(
 def rotate_and_slice_parallel(
     model_adapter: ModelAdapter,
     dataloader: torch.utils.data.DataLoader[torch.Tensor],
+    cut_vector: list,
     slice_layer_number: int,
     slice_percentage: float,
     new_embedding_dimension: int,
@@ -391,8 +412,9 @@ def rotate_and_slice_parallel(
     logging.info("Rotate and slice layers")
     layers = model_adapter.get_layers()
 
-    new_dimensions = slice_particular_layer_percent(len(layers), model_adapter.hidden_size, slice_layer_number,
-                                                    slice_percentage)
+    new_dimensions = get_slice_dimension_by_cut_vector(model_adapter.hidden_size, cut_vector)
+    #new_dimensions = slice_particular_layer_percent(len(layers), model_adapter.hidden_size, slice_layer_number,
+    #                                                slice_percentage)
     rotate_embeddings(model_adapter, Q)
     slice_embeddings2(model_adapter, new_dimensions)
 
