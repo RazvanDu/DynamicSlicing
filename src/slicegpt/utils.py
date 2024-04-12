@@ -85,3 +85,17 @@ def map_tensors(obj: T, device: torch.device | str | None = None, dtype: torch.d
         return {k: map_tensors(v, device, dtype) for k, v in obj.items()}  # type: ignore
     else:
         return obj
+
+
+#################
+# Adding functions from the slice-gpt actual codebase to see if the script run_eval will bun
+def create_file_handler(log_dir: str) -> logging.FileHandler:
+    path = pathlib.Path.cwd() / log_dir / f'{datetime.datetime.now():log_%Y-%m-%d-%H-%M-%S}.log'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    file_handler = logging.FileHandler(path, encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    formatter = logging.Formatter(
+        '%(asctime)s.%(msecs)04d\t%(levelname)s\t%(name)s\t%(message)s', datefmt='%Y-%m-%dT%H:%M:%S'
+    )
+    file_handler.setFormatter(formatter)
+    return file_handler

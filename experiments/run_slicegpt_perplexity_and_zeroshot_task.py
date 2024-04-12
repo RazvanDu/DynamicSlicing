@@ -16,6 +16,16 @@ import os
 
 import torch
 import wandb
+import json
+
+import lm_eval
+import wandb
+from lm_eval import tasks
+from lm_eval import utils as lm_eval_utils
+from lm_eval.api.registry import ALL_TASKS
+from lm_eval.models.huggingface import HFLM
+from lm_eval.tasks import initialize_tasks
+
 
 from slicegpt import data_utils, gpu_utils, hf_utils, layernorm_fusion, rotate, utils
 from slicegpt.config import config
@@ -125,6 +135,16 @@ def argparser() -> argparse.Namespace:
         default=[0]  # Default to a vector containing a single zero, adjust as necessary
     )
 
+    #zero-shot-task arguments
+    parser.add_argument(
+        '--tasks',
+        nargs='+',
+        default=["piqa", "hellaswag", "arc_easy", "arc_challenge", "winogrande"],
+        choices=lm_eval_utils.MultiChoice(tasks.ALL_TASKS),
+    )
+    parser.add_argument('--num-fewshot', type=int, default=0, help="Number of fewshots for all tasks.")
+    parser.add_argument("--batch-size", type=int, default=1, help="Batch size for evaluating with lm eval harness.")
+
     args = parser.parse_args()
 
     logging.debug(f'Parsed arguments:')
@@ -152,6 +172,8 @@ def argparser() -> argparse.Namespace:
 
 def main() -> None:
     logging.info("Running SliceGPT perplexity experiment")
+
+    initialize_tasks()
 
     args = argparser()
     '''
@@ -285,6 +307,112 @@ def main() -> None:
     sliced_fraction = 1.0 - sliced_param_count / original_param_count
     logging.info(f'Sliced model parameters: {sliced_param_count:,d} (sliced fraction {sliced_fraction:.4f})')
     print(f'Sliced model parameters: {sliced_param_count:,d} (sliced fraction {sliced_fraction:.4f})')
+
+
+    #evaluate model_metrics...?
+
+    ### LM Eval Harness ###
+
+
+    hflm = HFLM(pretrained=model_adapter.model, tokenizer=tokenizer, batch_size=args.batch_size)
+
+    print(f"\n\n\n The tasts are: {args.tasks}\n\n")
+    if args.tasks is None:
+        task_names = tasks.ALL_TASKS
+        print(f"\n\n\n The tasks.all_tasks is: {tasks.ALL_TASKS}")
+    else:
+        print(f"\n\n\n The function.. has the output: { lm_eval_utils.pattern_match(args.tasks, ALL_TASKS)}")
+        task_names = lm_eval_utils.pattern_match(args.tasks, ALL_TASKS)
+
+    print(f"\n\n\n The tasts are after if: {task_names}\n\n")
+
+    results = lm_eval.simple_evaluate(hflm, tasks=task_names, num_fewshot=args.num_fewshot, batch_size=args.batch_size)[
+        'results'
+    ]
+    logging.info(json.dumps(results, indent=2))
+
+
+    def calculate_avg_accuracy(task_names, results):
+        n_tasks = len(task_names)
+        acc_cumul = sum(
+            result.get('acc_norm,none', result['acc,none']) for task, result in results.items() if 'mmlu' not in task
+        )
+
+        questions_per_mmlu_task = {
+            task_name: lm_eval.tasks.get_task_dict([task_name])[task_name].dataset["test"].num_rows
+            for task_name in task_names
+            if 'mmlu' in task_name
+        }
+
+        if not questions_per_mmlu_task:
+            return acc_cumul / n_tasks
+
+        # Calculate average accuracy for mmlu tasks, weighted by number of questions in each task
+        acc_mmlu = sum(
+            result.get('acc_norm,none', result['acc,none']) * questions_per_mmlu_task[task]
+            for task, result in results.items()
+            if 'mmlu' in task
+        )
+        acc_mmlu_avg = acc_mmlu / sum(questions_per_mmlu_task.values())
+        wandb.log({'acc_mmlu_avg': acc_mmlu_avg})
+
+        return (acc_cumul + acc_mmlu_avg) / (n_tasks - len(questions_per_mmlu_task) + 1)
+
+    acc_avg = calculate_avg_accuracy(task_names, results)
+    wandb.log({'acc_avg': acc_avg})
+    logging.info(f"Average accuracy across tasks: {acc_avg}")
+
+
+    ##version 2:
+    ### LM Eval Harness ###
+
+    print(f"\n\n\n\n\nThe model_adapter used in fucking slicing...?")
+    hflm = HFLM(pretrained=model_adapter, tokenizer=tokenizer, batch_size=args.batch_size)
+
+    print(f"\n\n\n The tasts are: {args.tasks}\n\n")
+    if args.tasks is None:
+        task_names = tasks.ALL_TASKS
+        print(f"\n\n\n The tasks.all_tasks is: {tasks.ALL_TASKS}")
+    else:
+        print(f"\n\n\n The function.. has the output: {lm_eval_utils.pattern_match(args.tasks, ALL_TASKS)}")
+        task_names = lm_eval_utils.pattern_match(args.tasks, ALL_TASKS)
+
+    print(f"\n\n\n The tasts are after if: {task_names}\n\n")
+
+    results = lm_eval.simple_evaluate(hflm, tasks=task_names, num_fewshot=args.num_fewshot, batch_size=args.batch_size)[
+        'results'
+    ]
+    logging.info(json.dumps(results, indent=2))
+
+    def calculate_avg_accuracy(task_names, results):
+        n_tasks = len(task_names)
+        acc_cumul = sum(
+            result.get('acc_norm,none', result['acc,none']) for task, result in results.items() if 'mmlu' not in task
+        )
+
+        questions_per_mmlu_task = {
+            task_name: lm_eval.tasks.get_task_dict([task_name])[task_name].dataset["test"].num_rows
+            for task_name in task_names
+            if 'mmlu' in task_name
+        }
+
+        if not questions_per_mmlu_task:
+            return acc_cumul / n_tasks
+
+        # Calculate average accuracy for mmlu tasks, weighted by number of questions in each task
+        acc_mmlu = sum(
+            result.get('acc_norm,none', result['acc,none']) * questions_per_mmlu_task[task]
+            for task, result in results.items()
+            if 'mmlu' in task
+        )
+        acc_mmlu_avg = acc_mmlu / sum(questions_per_mmlu_task.values())
+        wandb.log({'acc_mmlu_avg': acc_mmlu_avg})
+
+        return (acc_cumul + acc_mmlu_avg) / (n_tasks - len(questions_per_mmlu_task) + 1)
+
+    acc_avg = calculate_avg_accuracy(task_names, results)
+    wandb.log({'acc_avg': acc_avg})
+    logging.info(f"Average accuracy across tasks: {acc_avg}")
 
 
 if __name__ == "__main__":

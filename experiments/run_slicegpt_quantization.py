@@ -6,10 +6,6 @@ os.environ["WANDB_SERVICE_WAIT"] = "300"
 os.environ['TRANSFORMERS_CACHE'] = '/storage/paulclotan/SmartSliceGPT/models'
 
 
-import os
-os.environ["WANDB_SERVICE_WAIT"] = "300"
-os.environ['TRANSFORMERS_CACHE'] = '/storage/paulclotan/SmartSliceGPT/models'
-
 import argparse
 import logging
 import os
@@ -17,7 +13,7 @@ import os
 import torch
 import wandb
 
-from slicegpt import data_utils, gpu_utils, hf_utils, layernorm_fusion, rotate, utils
+from slicegpt import data_utils, gpu_utils, hf_utils, layernorm_fusion, rotate, utils, quantize
 from slicegpt.config import config
 
 utils.configure_logging()
@@ -111,12 +107,12 @@ def argparser() -> argparse.Namespace:
     parser.add_argument("--slice-layer", type=int, default=1, help="The layer we are currently slicing.")
     parser.add_argument("--slice-percentage", type=float, default=0,
                         help="Percentage we cut from the original model")
-    #parser.add_argument("--slice-dimension", type=int, default=50,
+    # parser.add_argument("--slice-dimension", type=int, default=50,
     #                    help="The dimension we are adding/ reducing from that certain layer")
-    #parser.add_argument("--add-dimension", type=bool, default=False,
+    # parser.add_argument("--add-dimension", type=bool, default=False,
     #                    help="Default: the amount is subtracted. Add the param: True, to add dimension")
 
-    #parse the vector
+    # parse the vector
     parser.add_argument(
         "--vector-cut",
         type=float,
@@ -134,8 +130,6 @@ def argparser() -> argparse.Namespace:
     if not 0 <= args.sparsity < 1:
         raise argparse.ArgumentTypeError(f"Sparsity should be in the range [0, 1)")
 
-    if not 0 <= args.slice_percentage < 1:
-        raise argparse.ArgumentTypeError(f"The cut percentage must be in the interval [0,1)")
 
     if args.device:
         config.device = torch.device(args.device)
@@ -184,7 +178,6 @@ def main() -> None:
         model_adapter, tokenizer = hf_utils.get_model_and_tokenizer(args.model, token=args.hf_token, dtype=config.dtype)
 
     model = model_adapter.model
-    print(f"new cutting dimensions are {args.vector_cut}")
     def reset_model_device() -> None:
         if args.distribute_model:
             # distribute model across available GPUs
@@ -230,42 +223,17 @@ def main() -> None:
         utils.cleanup_memory()
 
     # replace modules with compressible equivalents
-    layernorm_fusion.replace_layers(model_adapter)
 
-    # fuse layernorms and add rotations to skip connections
-    layernorm_fusion.fuse_modules(model_adapter)
-
-    # don't run this on large and/or distributed models
-    if args.eval_fused_model and not args.distribute_model:
-        model.to(config.device)
-
-        dataset_ppl = gpu_utils.evaluate_ppl(model_adapter, test_loader)
-        logging.info(f'Post-fusion: {dataset_ppl:.4f}')
-        wandb.log({"post_fusion_ppl": dataset_ppl})
-
-        model.cpu()
-
-        # run GC and cleanup GPU memory
-        utils.cleanup_memory()
 
     original_param_count = sum(int(p.nelement()) for p in model.parameters())
     logging.info(f'Original model parameters: {original_param_count:,d}')
 
-    # compute new embedding dimension given the desired sparsity level
-    new_embedding_dimension = int((1 - args.sparsity) * model_adapter.hidden_size)
-    # round (down) to the nearest multiple of round_interval
-    new_embedding_dimension = new_embedding_dimension - (new_embedding_dimension % args.round_interval)
-    #logging.info(
-    #    f"New embedding dimension: {new_embedding_dimension} (sparsity {100*(1 - new_embedding_dimension / model_adapter.hidden_size):.4f} %)"
-    #)
 
     ignore_tokens = [tokenizer.pad_token_id]
-    rotate.rotate_and_slice(model_adapter, train_loader, args.vector_cut,
-                            args.slice_layer, args.slice_percentage, new_embedding_dimension,
+    quantize.quantize(model_adapter, train_loader, args.vector_cut,
+                            args.slice_layer, args.slice_percentage,
                             ignore_tokens=ignore_tokens)
-    #rotate.rotate_and_slice(model_adapter, train_loader, args.slice_layer, args.slice_dimension,
-    #                        args.add_dimension, new_embedding_dimension, ignore_tokens=ignore_tokens)
-    # used to cut layer by layer,+- a given quantity
+
 
     if args.save_dir:
         if not os.path.exists(args.save_dir):

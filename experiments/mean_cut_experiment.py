@@ -12,6 +12,8 @@ def parse_args():
     print("Usage:  --model <model_name> --cuda_device <gpu_device ex: cuda:0> --vector-cut <cut_dimensions> --source for vector <source_name> --dataset <dataset_name>")
     parser.add_argument('--model', type=str, default='microsoft/phi-2', help='Model to use.')
     parser.add_argument('--source-for-vector', type=str, default='wikitext2', help='Source from where the vector-cut is taken from')
+    parser.add_argument('--cut-percent', type=str, default='80%',
+                        help='The percent for the cut-vector used to generate it')
     parser.add_argument('--dataset', type=str, default='wikitext2', help='Dataset on which we evaluate.')
     parser.add_argument('--cuda-device', type=str, default='cuda:0', help='CUDA device to use.')
     parser.add_argument(
@@ -32,7 +34,7 @@ model_name_save = args.model.replace("/", "-")
 print(model_name_save)
 
 save_path = (f"/storage/paulclotan/SmartSliceGPT/experiments/experiment-output-folder/perplexity_results_{model_name_save}_"
-             f"{args.dataset}_on_{args.source_for_vector}.txt")
+             f"{args.dataset}_on_{args.source_for_vector}_{args.cut_percent}_cut_percent.txt")
 os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
 with open(save_path, 'w') as file:
@@ -41,6 +43,7 @@ with open(save_path, 'w') as file:
         f"\nModel: {args.model}"
         f"\nDataset: {args.dataset}"
         f"\nSource for Vector-Cut: {args.source_for_vector}"
+        f"\nThe cut vector was realized by cutting {args.cut_percent}%"
         f"\nVector: {args.vector_cut}"
         f"\nCUDA Device: {args.cuda_device}\n\n")
 

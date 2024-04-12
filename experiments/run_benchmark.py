@@ -13,7 +13,8 @@ from slicegpt.config import config
 
 utils.configure_logging()
 
-os.environ["WANDB__SERVICE_WAIT"] = "300"
+os.environ["WANDB_SERVICE_WAIT"] = "300"
+os.environ['TRANSFORMERS_CACHE'] = '/storage/paulclotan/SmartSliceGPT/models'
 
 
 def argparser() -> argparse.Namespace:
