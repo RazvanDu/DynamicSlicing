@@ -15,152 +15,129 @@ from .model_adapter import LayerAdapter, ModelAdapter
 from .model_utils import get_layer0_inputs, get_signals
 from .utils import cleanup_memory, map_tensors
 
-def check_tensors(matrix, quantized_matrix):
-    if not matrix.equal(quantized_matrix):
-        print(f"Tensor {matrix}\n is different from tensor \n {quantized_matrix}")
-        exit()
 
-
-def get_floating_point_range(bit_zone, mantissa_bits_type, exp_bits_type):
-    if bit_zone == 32:
-        # IEEE 754 single-precision floating-point format: 1 bit sign, 8 bits exponent, 23 bits mantissa
-        exponent_bits = 8
-        mantissa_bits = 23
-    elif bit_zone == 64:
-        # IEEE 754 double-precision floating-point format: 1 bit sign, 11 bits exponent, 52 bits mantissa
-        exponent_bits = 11
-        mantissa_bits = 52
-    elif bit_zone == 16:
-        # IEEE 754 half-precision floating-point format: 1 bit sign, 5 bits exponent, 10 bits mantissa
-        exponent_bits = 5
-        mantissa_bits = 10
-    else:
-        exponent_bits = exp_bits_type
-        mantissa_bits = mantissa_bits_type
-
-    max_exponent = 2 ** (exponent_bits - 1) - 1  # Adjusted for bias
-    max_value = (2 - 2 ** -mantissa_bits) * (2 ** max_exponent) - 1
-    min_value = -max_value
-    return min_value, max_value
-
-
-def count_decimal_places_for_bits(bits_in_mantissa):
-    # Calculate the number of decimal digits that can be accurately represented
-    decimal_places = math.ceil(bits_in_mantissa * math.log10(2))
-    return decimal_places
-
-
-def clamp_to_range(tensor, exp_bits, mantissa_bits, bits):
-    # Calculate floating point range based on exponent and mantissa
-    min_value, max_value = get_floating_point_range(bits, mantissa_bits, exp_bits)
-    #print(f"Floating-point range is: [{min_value}, {max_value}]")
-    tensor[tensor < min_value] = min_value
-    tensor[tensor > max_value] = max_value
-    return tensor
-
-
-def quantize_dynamic(data, bits, zero_replacement=1e-7):
+def quantize_dynamic(data, bits):
     # Calculate scale factor based on the number of bits
 
-    # print(data)
+    #print(f"The data in quant function is:{data}")
 
-    exp_bits, mantissa_num_bits = bits // 3, bits * 2 // 3
-    #print(f"total bits: {bits}, mantissa: {mantissa_num_bits}, exp_bits: {exp_bits}")
+    data_range = torch.max(data) - torch.min(data)
+    data_range = 1 if data_range == 0 else data_range
 
-    #print(f"data before clamping:{data}")
+    #print(f"The bits are {bits}")
 
-    precision = count_decimal_places_for_bits(mantissa_num_bits)
-    #print(f"the precision is: {precision}")
+    range_values = 2 ** bits
 
-    #data = torch.round(data, decimals=precision)
+    scale = (range_values - 1) / data_range
 
-    #data = clamp_to_range(data, exp_bits, mantissa_num_bits, bits)
+    zeropoint = (-scale * torch.min(data) - (range_values / 2)).round()
+    data_quant = torch.clip((data * scale + zeropoint).round(), -(range_values), range_values - 1)
+    data_dequant = (data_quant - zeropoint) / scale
 
-    #data[data == 0] = zero_replacement
-    #print(f"final data: {data}")
+    #data_dequant[data_dequant== 0] = 10 ** (-(bits + 2))
 
-    return data
+    return data_dequant
 
 
-def quantize_matrix_zones(matrix):
-
-    print(f"The original vectt/mat is: {matrix}")
+def quantize_matrix_zones(matrix, quantization_limit_one, quantization_limit_two,
+                          quant_second_zone_percent, quant_third_zone_percent):
+    # print(f"The original vectt/mat is: {matrix}")
     quantized_matrix = matrix.clone()  # Clone the matrix to avoid modifying the original
 
-    print(f"The copied vectt/mat is: {matrix}")
-
-    # Assuming the dtype of the matrix is torch.float32
-
-
+    # print(f"The copied vectt/mat is: {matrix}")
 
     matrix_type = str(matrix.dtype)
 
     # Use regular expression to find numbers in the string
     original_format = int(re.findall(r'\d+', matrix_type)[0])
 
-    data_min = torch.min(matrix)
-    data_max = torch.max(matrix)
-
     bits_zone1 = int(original_format)
 
-    print(f"The bitzone is: {bits_zone1}")
+    # print(f"The bitzone is: {bits_zone1}")
 
-    bits_zone2 = bits_zone1
-    bits_zone3 = bits_zone2
+    bits_zone2 = int(quant_second_zone_percent)
+    bits_zone3 = int(quant_third_zone_percent)
+    # print(f"The parameters are: quant_second_zone_percent: {quant_second_zone_percent}, quant_third_zone_percent: {quant_third_zone_percent}\n ")
+    #print(f"The bitzone 1 is: {bits_zone1}, bitzone2: {bits_zone2}, and bitszone3: {bits_zone3}")
 
     #print(f"bit zone1: {bits_zone1}, bits_zone2: {bits_zone2}, bits_zone3: P{bits_zone3}")
 
     if matrix.dim() == 1:
 
-        print(f"The vect before quant is: {matrix}")
-
+        # print(f"The vect before quant is: {matrix}")
 
         # Treat the single dimension as columns
         cols = matrix.size(0)
-        col_zone1_end = cols // 4
-        col_zone2_end = cols * 3 // 4
+        col_zone1_end = int(cols * quantization_limit_one)
+        col_zone2_end = int(cols * quantization_limit_two)
 
+        if col_zone1_end == col_zone2_end:
+            col_zone2_end += 2
+        if col_zone1_end == 0:
+            col_zone1_end += 1
+        # print(f"The zone parameters are: quantiz_limit_one: {quantization_limit_two}, quantiz_limit_two: {quantization_limit_two}\n"
+        #      f"with the ranges: 0:{col_zone1_end}:{col_zone2_end} for columns, with initial dimension:{cols}")
         # Apply quantization based on column zones
+
         quantized_matrix[col_zone1_end:col_zone2_end] = quantize_dynamic(quantized_matrix[col_zone1_end:col_zone2_end],
                                                                          bits_zone2)
         quantized_matrix[col_zone2_end:] = quantize_dynamic(quantized_matrix[col_zone2_end:], bits_zone3)
 
-        print(f"The vect after quant is: {matrix}")
+        # print(f"The vect after quant is: {matrix}")
 
 
     else:
 
-        print(f"The matrix before quant is: {matrix}")
+        #print(f"The matrix before quant is: {matrix}")
 
         # Define the zones based on matrix dimensions
         rows, cols = matrix.size()  # Get the dimensions of the matrix
-        row_zone1_end = rows // 4
-        col_zone1_end = cols // 4
-        row_zone2_end = rows * 3 // 4
-        col_zone2_end = cols * 3 // 4
+        row_zone1_end = int(rows * quantization_limit_one)
+        col_zone1_end = int(cols * quantization_limit_one)
+        row_zone2_end = int(rows * quantization_limit_two)
+        col_zone2_end = int(cols * quantization_limit_two)
+
+        if col_zone1_end == col_zone2_end:
+            col_zone2_end += 2
+        if col_zone1_end == 0:
+            col_zone1_end += 1
+
+        if row_zone1_end == row_zone2_end:
+            row_zone2_end += 2
+        if row_zone1_end == 0:
+            row_zone1_end += 1
+
+
+        #print(
+        #    f"The zone parameters are: quantiz_limit_one: {quantization_limit_one}, quantiz_limit_two: {quantization_limit_two}\n"
+        #    f"with the ranges: 0:{col_zone1_end}:{col_zone2_end} for columns, with initial dimension:{cols}\n"
+        #    f"with the ranges: 0:{row_zone1_end}:{row_zone2_end} for rows, with initial_dimension: {rows}")
 
         # Zone 2 - precision lower than Zone 1
         # We ensure that zone 1 is excluded by starting from row_zone1_end
+
+
+        #print(f"\n The zone2_slice1 is: {row_zone1_end}:{row_zone2_end}, : {col_zone2_end} ")
         zone2_slice_1 = quantized_matrix[row_zone1_end:row_zone2_end, :col_zone2_end]
         quantized_matrix[row_zone1_end:row_zone2_end, :col_zone2_end] = quantize_dynamic(zone2_slice_1, bits_zone2)
 
+        #print(f"\n The zone2_slice2 is: :{row_zone1_end}, {col_zone1_end}: {col_zone2_end} ")
         zone2_slice_2 = quantized_matrix[:row_zone1_end, col_zone1_end:col_zone2_end]
         quantized_matrix[:row_zone1_end, col_zone1_end:col_zone2_end] = quantize_dynamic(zone2_slice_2, bits_zone2)
 
         # Zone 3 - precision decreased by 2 more bits than Zone 2
         # This includes the area from row_zone2_end to the end of the matrix, and col_zone2_end to the end of the matrix
         # We also include the area from row_zone1_end to row_zone2_end for columns beyond col_zone2_end
+        #print(f"\n The zone3_slice1 is: {row_zone2_end}:, :  ")
         zone3_slice_1 = quantized_matrix[row_zone2_end:, :]
         quantized_matrix[row_zone2_end:, :] = quantize_dynamic(zone3_slice_1, bits_zone3)
 
+        #print(f"\n The zone3_slice1 is: :{row_zone2_end}, {col_zone2_end}:  ")
         zone3_slice_2 = quantized_matrix[:row_zone2_end, col_zone2_end:]
         quantized_matrix[:row_zone2_end, col_zone2_end:] = quantize_dynamic(zone3_slice_2, bits_zone3)
 
-        print(f"The matrix after quant is: {quantized_matrix}")
-
-
-
-
+        #print(f"The matrix after quant is: {quantized_matrix}")
+        #exit()
 
     return quantized_matrix
 
@@ -204,11 +181,13 @@ def rotate_attention_inputs(layer_adapter: LayerAdapter, Q: torch.Tensor) -> Non
         W.weight.data = torch.matmul(W_, Q).to(device="cpu", dtype=dtype)
 
 
-def slice_attention_inputs(layer_adapter: LayerAdapter, new_embedding_dimension: int) -> None:
+def slice_attention_inputs(layer_adapter: LayerAdapter, new_embedding_dimension: int, quantization_limit_one: float,
+                           quantization_limit_two: float, quant_second_zone_percent: float, quant_third_zone_percent: float) -> None:
     # Slice the  WQ, WK and WV matrices of the self-attention layer.
     for W in layer_adapter.get_attention_inputs():
         W.weight.data = W.weight.data[:, :new_embedding_dimension]
-        #W.weight.data = quantize_matrix_zones(W.weight.data)
+        W.weight.data = quantize_matrix_zones(W.weight.data, quantization_limit_one, quantization_limit_two,
+                        quant_second_zone_percent, quant_third_zone_percent)
         #new_data = quantize_matrix_zones(W.weight.data)
         #check_tensors(new_data,W.weight.data)
 
@@ -230,16 +209,19 @@ def rotate_attention_output(layer_adapter: LayerAdapter, Q: torch.Tensor) -> Non
         W.bias.data = torch.matmul(Q.T, b).to(device="cpu", dtype=dtype)
 
 
-def slice_attention_output(layer_adapter: LayerAdapter, new_embedding_dimension: int) -> None:
+def slice_attention_output(layer_adapter: LayerAdapter, new_embedding_dimension: int, quantization_limit_one: float,
+                           quantization_limit_two: float, quant_second_zone_percent: float, quant_third_zone_percent: float) -> None:
     # Slice output matrix of the self-attention layer.
     W = layer_adapter.get_attention_output()
     W.weight.data = W.weight.data[:new_embedding_dimension, :]
-    #W.weight.data = quantize_matrix_zones(W.weight.data)
+    W.weight.data = quantize_matrix_zones(W.weight.data, quantization_limit_one, quantization_limit_two,
+                        quant_second_zone_percent, quant_third_zone_percent)
     #new_data = quantize_matrix_zones(W.weight.data)
     #check_tensors(new_data, W.weight.data)
     if W.bias is not None:
         W.bias.data = W.bias.data[:new_embedding_dimension]
-        #W.bias.data = quantize_matrix_zones(W.bias.data)
+        W.bias.data = quantize_matrix_zones(W.bias.data, quantization_limit_one, quantization_limit_two,
+                        quant_second_zone_percent, quant_third_zone_percent)
         #new_data = quantize_matrix_zones(W.bias.data)
         #check_tensors(new_data, W.bias.data)
 
@@ -255,11 +237,13 @@ def rotate_mlp_input(layer_adapter: LayerAdapter, Q: torch.Tensor) -> None:
         W.weight.data = torch.matmul(W_, Q).to(device="cpu", dtype=dtype)
 
 
-def slice_mlp_input(layer_adapter: LayerAdapter, new_embedding_dimension: int) -> None:
+def slice_mlp_input(layer_adapter: LayerAdapter, new_embedding_dimension: int, quantization_limit_one: float,
+                           quantization_limit_two: float, quant_second_zone_percent: float, quant_third_zone_percent: float) -> None:
     # Slice the MLP input weights.
     for W in layer_adapter.get_mlp_inputs():
         W.weight.data = W.weight.data[:, :new_embedding_dimension]
-        #W.weight.data = quantize_matrix_zones(W.weight.data)
+        W.weight.data = quantize_matrix_zones(W.weight.data, quantization_limit_one, quantization_limit_two,
+                        quant_second_zone_percent, quant_third_zone_percent)
         #new_data = quantize_matrix_zones(W.weight.data)
         #check_tensors(new_data, W.weight.data)
         #print(f"Slice mlp input- dimension {W.weight.data.shape}")
@@ -277,17 +261,20 @@ def rotate_mlp_output(layer_adapter: LayerAdapter, Q: torch.Tensor) -> None:
         W.bias.data = torch.matmul(Q.T, b).to(device="cpu", dtype=dtype)
 
 
-def slice_mlp_output(layer_adapter: LayerAdapter, new_embedding_dimension: int) -> None:
+def slice_mlp_output(layer_adapter: LayerAdapter, new_embedding_dimension: int, quantization_limit_one: float,
+                           quantization_limit_two: float, quant_second_zone_percent: float, quant_third_zone_percent: float) -> None:
     # Slice the MLP output weights and bias.
     W = layer_adapter.get_mlp_output()
     W.weight.data = W.weight.data[:new_embedding_dimension, :]
-    #W.weight.data = quantize_matrix_zones(W.weight.data)
+    W.weight.data = quantize_matrix_zones(W.weight.data, quantization_limit_one, quantization_limit_two,
+                        quant_second_zone_percent, quant_third_zone_percent)
     #new_data = quantize_matrix_zones(W.weight.data)
     #check_tensors(new_data, W.weight.data)
 
     if W.bias is not None:
         W.bias.data = W.bias.data[:new_embedding_dimension]
-        #W.bias.data = quantize_matrix_zones(W.bias.data)
+        W.bias.data = quantize_matrix_zones(W.bias.data, quantization_limit_one, quantization_limit_two,
+                        quant_second_zone_percent, quant_third_zone_percent)
         #new_data = quantize_matrix_zones(W.bias.data)
         #check_tensors(new_data, W.bias.data)
 
@@ -306,22 +293,26 @@ def rotate_embeddings(model_adapter: ModelAdapter, Q: torch.Tensor) -> None:
     cleanup_memory()
 
 
-def slice_embeddings(model_adapter: ModelAdapter, new_embedding_dimension: int) -> None:
+def slice_embeddings(model_adapter: ModelAdapter, new_embedding_dimension: int, quantization_limit_one: float,
+                           quantization_limit_two: float, quant_second_zone_percent: float, quant_third_zone_percent: float) -> None:
     # Slice the embeddings.
     for W in model_adapter.get_embeddings():
         W.weight.data = W.weight.data[:, :new_embedding_dimension]
-        #W.weight.data = quantize_matrix_zones(W.weight.data)
+        W.weight.data = quantize_matrix_zones(W.weight.data, quantization_limit_one, quantization_limit_two,
+                        quant_second_zone_percent, quant_third_zone_percent)
         #new_data = quantize_matrix_zones(W.weight.data)
         #check_tensors(new_data, W.weight.data)
 
 
 ######## poate pusca
-def slice_embeddings2(model_adapter: ModelAdapter, new_embedding_dimensions: np.array) -> None:
+def slice_embeddings2(model_adapter: ModelAdapter, new_embedding_dimensions: np.array,quantization_limit_one: float,
+                           quantization_limit_two: float, quant_second_zone_percent: float, quant_third_zone_percent: float) -> None:
     # Slice the embeddings
     for i, W in enumerate(model_adapter.get_embeddings()):
         #print("LOOKING AT LAYER ", i, new_embedding_dimensions[i])
         W.weight.data = W.weight.data[:, :new_embedding_dimensions[0]]
-        #W.weight.data = quantize_matrix_zones(W.weight.data)
+        W.weight.data = quantize_matrix_zones(W.weight.data, quantization_limit_one, quantization_limit_two,
+                        quant_second_zone_percent, quant_third_zone_percent)
         #new_data = quantize_matrix_zones(W.weight.data)
         #check_tensors(new_data, W.weight.data)
 
@@ -337,11 +328,13 @@ def rotate_head(model_adapter: ModelAdapter, Q: torch.Tensor) -> None:
     W.weight.data = torch.matmul(W_, Q).to(device="cpu", dtype=dtype)
 
 
-def slice_head(model_adapter: ModelAdapter, new_embedding_dimension: int) -> None:
+def slice_head(model_adapter: ModelAdapter, new_embedding_dimension: int, quantization_limit_one: float,
+                           quantization_limit_two: float, quant_second_zone_percent: float, quant_third_zone_percent: float) -> None:
     # Slice the head.
     lm_head = model_adapter.get_lm_head()
     lm_head.weight.data = lm_head.weight.data[:, :new_embedding_dimension]
-    #lm_head.weight.data = quantize_matrix_zones(lm_head.weight.data)
+    lm_head.weight.data = quantize_matrix_zones(lm_head.weight.data, quantization_limit_one, quantization_limit_two,
+                        quant_second_zone_percent, quant_third_zone_percent)
     #new_data = quantize_matrix_zones(lm_head.weight.data)
     #check_tensors(new_data, lm_head.weight.data)
 
@@ -355,6 +348,10 @@ def quantize(
     cut_vector: list,
     slice_layer_number: int,
     slice_percentage: float,
+    quantization_limit_one: float,
+    quantization_limit_two:float,
+    quant_second_zone_percent : float,
+    quant_third_zone_percent: float,
     do_slice_head: bool = False,
     ignore_tokens: list[int] | None = None,
 ) -> None:
@@ -364,9 +361,13 @@ def quantize(
     if model_adapter.parallel_blocks:
 
         rotate_and_slice_parallel(model_adapter, dataloader, cut_vector, slice_layer_number, slice_percentage,
-                                do_slice_head, ignore_tokens)
+                                  quantization_limit_one, quantization_limit_two,
+                                  quant_second_zone_percent, quant_third_zone_percent,
+                                  do_slice_head, ignore_tokens)
     else:
         rotate_and_slice_sequential(model_adapter, dataloader, cut_vector ,slice_layer_number, slice_percentage,
+                                    quantization_limit_one, quantization_limit_two,
+                                    quant_second_zone_percent, quant_third_zone_percent,
                                 do_slice_head, ignore_tokens)
 
 
@@ -377,6 +378,10 @@ def rotate_and_slice_sequential(
     cut_vector: list,
     slice_layer_number: int,
     slice_percentage: float,
+    quantization_limit_one: float,
+    quantization_limit_two:float,
+    quant_second_zone_percent : float,
+    quant_third_zone_percent: float,
     do_slice_head: bool = False,
     ignore_tokens: list[int] | None = None,
 ) -> None:
@@ -412,7 +417,8 @@ def rotate_and_slice_sequential(
     print(new_dimensions)
 
     rotate_embeddings(model_adapter, Q)
-    slice_embeddings2(model_adapter, new_dimensions)
+    slice_embeddings2(model_adapter, new_dimensions, quantization_limit_one, quantization_limit_two,
+                        quant_second_zone_percent, quant_third_zone_percent)
 
     logging.info("Rotate and slice layers")
     #layers = model_adapter.get_layers()
@@ -425,9 +431,11 @@ def rotate_and_slice_sequential(
 
         # rotate and slice the attention inputs to match previous layer
         rotate_attention_inputs(layer_adapter, Q)
-        slice_attention_inputs(layer_adapter, new_imp_emb_dimension) # match matmul part
+        slice_attention_inputs(layer_adapter, new_imp_emb_dimension, quantization_limit_one, quantization_limit_two,
+                        quant_second_zone_percent, quant_third_zone_percent) # match matmul part
 
         # get signal between attention and mlp, rotate and slice
+
         for i, inp in enumerate(inps):
             args[i] = layer_adapter.get_updated_args(
                 torch.matmul(inp.to(device=config.device), Q.to(dtype=dtype))[:, :, :new_imp_emb_dimension].cpu(),
@@ -440,11 +448,13 @@ def rotate_and_slice_sequential(
 
         layer.attn_shortcut_Q = torch.matmul(layer.attn_shortcut_Q, Q.to(dtype=dtype)[:, :new_imp_emb_dimension]) # match 2 lines below
         rotate_attention_output(layer_adapter, Q)
-        slice_attention_output(layer_adapter, new_imp_emb_dimension) # this must match slice_mlp_input
+        slice_attention_output(layer_adapter, new_imp_emb_dimension, quantization_limit_one, quantization_limit_two,
+                        quant_second_zone_percent, quant_third_zone_percent) # this must match slice_mlp_input
 
         layer.mlp_shortcut_Q = Q.T.clone().to(dtype=dtype)[:new_imp_emb_dimension, :]
         rotate_mlp_input(layer_adapter, Q)
-        slice_mlp_input(layer_adapter, new_imp_emb_dimension)
+        slice_mlp_input(layer_adapter, new_imp_emb_dimension, quantization_limit_one, quantization_limit_two,
+                        quant_second_zone_percent, quant_third_zone_percent)
         _, inps = get_signals(layer_adapter, args, kwargs)
 
         # Run GC and cleanup GPU memory
@@ -464,7 +474,8 @@ def rotate_and_slice_sequential(
                 dim = model_adapter.hidden_size
 
         rotate_mlp_output(layer_adapter, Q)
-        slice_mlp_output(layer_adapter, dim)
+        slice_mlp_output(layer_adapter, dim, quantization_limit_one, quantization_limit_two,
+                        quant_second_zone_percent, quant_third_zone_percent)
         layer_adapter.layer.mlp_shortcut_Q = layer_adapter.layer.mlp_shortcut_Q[:, :dim]
 
         layer.to('cpu')
@@ -475,7 +486,8 @@ def rotate_and_slice_sequential(
     # rotate and slice head
     rotate_head(model_adapter, Q)
     if do_slice_head:
-        slice_head(model_adapter, new_dimensions[-1])
+        slice_head(model_adapter, new_dimensions[-1], quantization_limit_one, quantization_limit_two,
+                        quant_second_zone_percent, quant_third_zone_percent)
 
     logging.info("Rotate and slice layers done")
 
@@ -487,6 +499,10 @@ def rotate_and_slice_parallel(
     cut_vector: list,
     slice_layer_number: int,
     slice_percentage: float,
+    quantization_limit_one: float,
+    quantization_limit_two:float,
+    quant_second_zone_percent : float,
+    quant_third_zone_percent: float,
     do_slice_head: bool = False,
     ignore_tokens: list[int] | None = None,
 ) -> None:
@@ -519,7 +535,8 @@ def rotate_and_slice_parallel(
     #new_dimensions = slice_particular_layer_percent(len(layers), model_adapter.hidden_size, slice_layer_number,
     #                                                slice_percentage)
     rotate_embeddings(model_adapter, Q)
-    slice_embeddings2(model_adapter, new_dimensions)
+    slice_embeddings2(model_adapter, new_dimensions, quantization_limit_one, quantization_limit_two,
+                        quant_second_zone_percent, quant_third_zone_percent)
 
     for idx, layer_adapter in enumerate(tqdm(layers, unit="layer", desc="Rotating and slicing")):
         layer = layer_adapter.layer
@@ -532,8 +549,10 @@ def rotate_and_slice_parallel(
         rotate_attention_inputs(layer_adapter, Q)
         rotate_mlp_input(layer_adapter, Q)
 
-        slice_attention_inputs(layer_adapter, int(new_imp_emb_dimension))
-        slice_mlp_input(layer_adapter, int(new_imp_emb_dimension))
+        slice_attention_inputs(layer_adapter, int(new_imp_emb_dimension), quantization_limit_one, quantization_limit_two,
+                        quant_second_zone_percent, quant_third_zone_percent)
+        slice_mlp_input(layer_adapter, int(new_imp_emb_dimension), quantization_limit_one, quantization_limit_two,
+                        quant_second_zone_percent, quant_third_zone_percent)
 
         # update the input signals to this layer, and re-run it
         for i, inp in enumerate(inps):
@@ -573,8 +592,10 @@ def rotate_and_slice_parallel(
 
         rotate_mlp_output(layer_adapter, Q)
         rotate_attention_output(layer_adapter, Q)
-        slice_mlp_output(layer_adapter, dim)
-        slice_attention_output(layer_adapter, dim)
+        slice_mlp_output(layer_adapter, dim, quantization_limit_one, quantization_limit_two,
+                        quant_second_zone_percent, quant_third_zone_percent)
+        slice_attention_output(layer_adapter, dim, quantization_limit_one, quantization_limit_two,
+                        quant_second_zone_percent, quant_third_zone_percent)
 
         # slice the shortcut (there is only one, we use attn_shortcut buffer)
 
@@ -589,7 +610,8 @@ def rotate_and_slice_parallel(
     # rotate and slice head
     rotate_head(model_adapter, Q)
     if do_slice_head:
-        slice_head(model_adapter, new_dimensions[-1])
+        slice_head(model_adapter, new_dimensions[-1], quantization_limit_one, quantization_limit_two,
+                        quant_second_zone_percent, quant_third_zone_percent)
 
     logging.info("Rotate and slice layers done")
 
@@ -725,11 +747,20 @@ def pca_calc(
     diag = torch.arange(H.shape[-1]).to(device=config.device)
     H[diag, diag] = H[diag, diag] + damp
     X_eig = torch.linalg.eigh(H)
+    identity_matrix = torch.eye(H.shape[0], device=config.device, dtype=torch.float64)
     del H
+    #print(X_eig.size())
     index = torch.argsort(X_eig[0], descending=True)
-    eig_val = X_eig[0][index]
-    eigen_vec = X_eig[1][:, index]
+    #eig_val = X_eig[0][index]
+    #eigen_vec = X_eig[1][:, index]
+
+
+
+    eig_val = X_eig[0]
+    eigen_vec = X_eig[1]
+
     condition_number = eig_val.max() / eig_val[eig_val > 0].min()
     print(condition_number)
-    return eig_val, eigen_vec
+
+    return eig_val, identity_matrix#eigen_vec
 
