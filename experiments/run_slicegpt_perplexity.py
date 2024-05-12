@@ -125,6 +125,10 @@ def argparser() -> argparse.Namespace:
         default=[0]  # Default to a vector containing a single zero, adjust as necessary
     )
 
+    parser.add_argument("--single-layer-cut", type=int, default=0,
+                        help="Two cutting modes. 0- cut based on vector-instance of cut percentage"
+                            "1 - the cut is done for only 1 layer, for a given layer nr and percentage")
+
     args = parser.parse_args()
 
     logging.debug(f'Parsed arguments:')
@@ -262,7 +266,7 @@ def main() -> None:
     ignore_tokens = [tokenizer.pad_token_id]
     rotate.rotate_and_slice(model_adapter, train_loader, args.vector_cut,
                             args.slice_layer, args.slice_percentage, new_embedding_dimension,
-                            ignore_tokens=ignore_tokens)
+                            args.single_layer_cut, ignore_tokens=ignore_tokens)
     #rotate.rotate_and_slice(model_adapter, train_loader, args.slice_layer, args.slice_dimension,
     #                        args.add_dimension, new_embedding_dimension, ignore_tokens=ignore_tokens)
     # used to cut layer by layer,+- a given quantity
