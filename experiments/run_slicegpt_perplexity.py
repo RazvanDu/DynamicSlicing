@@ -13,12 +13,20 @@ os.environ['TRANSFORMERS_CACHE'] = '/storage/paulclotan/SmartSliceGPT/models'
 import argparse
 import logging
 import os
-
 import torch
 import wandb
 
 from slicegpt import data_utils, gpu_utils, hf_utils, layernorm_fusion, rotate, utils
 from slicegpt.config import config
+
+import json
+import lm_eval
+from lm_eval import tasks
+from lm_eval import utils as lm_eval_utils
+from lm_eval.api.registry import ALL_TASKS
+from lm_eval.models.huggingface import HFLM
+from lm_eval.tasks import initialize_tasks
+from lm_eval import evaluator
 
 utils.configure_logging()
 
@@ -43,8 +51,17 @@ def argparser() -> argparse.Namespace:
             'meta-llama/Llama-2-7b-hf',
             'meta-llama/Llama-2-13b-hf',
             'meta-llama/Llama-2-70b-hf',
+            #LLAMAmodels
+            'meta-llama/Meta-Llama-3-8B',
             # Phi-2 model
             'microsoft/phi-2',
+            # mistral
+            'mistralai/Mistral-7B-v0.1',
+            'mistralai/Mistral-7B-Instruct-v0.2',
+            'mistralai/Mistral-7B-v0.2',
+            'mistralai/Mistral-7B-v0.3',
+
+
         ],
         default="facebook/opt-125m",
     )
@@ -129,6 +146,19 @@ def argparser() -> argparse.Namespace:
                         help="Two cutting modes. 0- cut based on vector-instance of cut percentage"
                             "1 - the cut is done for only 1 layer, for a given layer nr and percentage")
 
+    # zero-shot-task arguments
+    parser.add_argument(
+        '--tasks',
+        nargs='+',
+        default = None,
+        choices=lm_eval_utils.MultiChoice(tasks.ALL_TASKS),
+    )
+
+    parser.add_argument('--num-fewshot', type=int, default=0, help="Number of fewshots for all tasks.")
+    parser.add_argument("--batch-size", type=int, default=1, help="Batch size for evaluating with lm eval harness.")
+
+    parser.add_argument("--metric-to-use", type=int, default=1, help="0 for skewness, 1 for coefficient of vairation.")
+
     args = parser.parse_args()
 
     logging.debug(f'Parsed arguments:')
@@ -156,6 +186,8 @@ def argparser() -> argparse.Namespace:
 
 def main() -> None:
     logging.info("Running SliceGPT perplexity experiment")
+
+    initialize_tasks()
 
     args = argparser()
     '''
@@ -266,7 +298,7 @@ def main() -> None:
     ignore_tokens = [tokenizer.pad_token_id]
     rotate.rotate_and_slice(model_adapter, train_loader, args.vector_cut,
                             args.slice_layer, args.slice_percentage, new_embedding_dimension,
-                            args.single_layer_cut, ignore_tokens=ignore_tokens)
+                            args.single_layer_cut, args.metric_to_use, ignore_tokens=ignore_tokens)
     #rotate.rotate_and_slice(model_adapter, train_loader, args.slice_layer, args.slice_dimension,
     #                        args.add_dimension, new_embedding_dimension, ignore_tokens=ignore_tokens)
     # used to cut layer by layer,+- a given quantity
@@ -280,15 +312,90 @@ def main() -> None:
         logging.info(f"Saved sliced model to {args.save_dir}")
 
     reset_model_device()
+    '''
     dataset_ppl = gpu_utils.evaluate_ppl(model_adapter, test_loader)
     logging.info(f'After rotating and slicing {dataset_ppl:.4f}')
     print(f'After rotating and slicing {dataset_ppl:.4f}')
     wandb.log({"sliced_ppl": dataset_ppl})
-
+    
     sliced_param_count = sum(int(p.nelement()) for p in model.parameters())
     sliced_fraction = 1.0 - sliced_param_count / original_param_count
     logging.info(f'Sliced model parameters: {sliced_param_count:,d} (sliced fraction {sliced_fraction:.4f})')
     print(f'Sliced model parameters: {sliced_param_count:,d} (sliced fraction {sliced_fraction:.4f})')
+
+
+    '''
+    ### LM Eval Harness ###
+    # the lm eval harness ties the weights, but this should not be done for sliced models unless the lm_head was sliced
+    # necesary for opt to run. do not understand why atm.
+    model_adapter.model.tie_weights = lambda: None
+
+    model_adapter.model.eval()
+    #setting the tasks here
+    #args.tasks = ["piqa", "hellaswag", "arc_easy", "arc_challenge", "winogrande"]
+    hflm = HFLM(pretrained=model_adapter.model, tokenizer=tokenizer)# , batch_size=args.batch_size)
+
+    #print(f"\n\n\n The tasts are: {args.tasks}\n\n")
+    if args.tasks is None:
+        task_names = None
+        print(f"\n\n\n The tasks are : {task_names}. Stopping.")
+        exit()
+    else:
+        print(f"\n\n\n The function.. has the output: {lm_eval_utils.pattern_match(args.tasks, ALL_TASKS)}")
+        task_names = lm_eval_utils.pattern_match(args.tasks, ALL_TASKS)
+
+    #print(f"\n\n\n The tasts are after if: {task_names}\n\n")
+    '''
+    results = lm_evaluate.evaluate(model=hflm, tasks=task_names, device=config.device, limit=100)
+    '''
+    results = lm_eval.simple_evaluate(hflm, tasks=task_names,limit=300)[ #batch_size=args.batch_size, num_fewshot=args.num_fewshot) [
+        'results'
+    ]
+    logging.info(json.dumps(results, indent=2))
+
+
+
+    '''
+    used to compute the average accuracy. not needed atm. should be most likely removed in the future
+    def calculate_avg_accuracy(task_names, results):
+        n_tasks = len(task_names)
+        acc_cumul = sum(
+            result.get('acc_norm,none', result['acc,none']) for task, result in results.items() if 'mmlu' not in task
+        )
+
+        questions_per_mmlu_task = {
+            task_name: lm_eval.tasks.get_task_dict([task_name])[task_name].dataset["test"].num_rows
+            for task_name in task_names
+            if 'mmlu' in task_name
+        }
+
+        if not questions_per_mmlu_task:
+            return acc_cumul / n_tasks
+
+        # Calculate average accuracy for mmlu tasks, weighted by number of questions in each task
+        acc_mmlu = sum(
+            result.get('acc_norm,none', result['acc,none']) * questions_per_mmlu_task[task]
+            for task, result in results.items()
+            if 'mmlu' in task
+        )
+        acc_mmlu_avg = acc_mmlu / sum(questions_per_mmlu_task.values())
+        wandb.log({'acc_mmlu_avg': acc_mmlu_avg})
+
+        return (acc_cumul + acc_mmlu_avg) / (n_tasks - len(questions_per_mmlu_task) + 1)
+
+
+    acc_avg = calculate_avg_accuracy(task_names, results)
+    
+    wandb.log({'acc_avg': acc_avg})
+    logging.info(f"Average accuracy across tasks: {acc_avg}.")
+    #print(f"\nAverage accuracy across tasks: {acc_avg}.")
+    
+    
+    '''
+    print(f"\n\nThe accuracy results are: {results}\n\n")
+
+
+
 
 
 if __name__ == "__main__":

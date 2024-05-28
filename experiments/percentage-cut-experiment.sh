@@ -16,7 +16,7 @@ gpu_device=$4
 hf_token="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"
 
 # The base command with the changing parameters as variables and the hf_token included
-base_command="python3.11 run_slicegpt_perplexity.py --model $model_name --save-dir /storage/paulclotan/SmartSliceGPT/save_work2 --sparsity 0.25 --no-wandb --device $gpu_device --cal-dataset $dataset --hf-token $hf_token"
+base_command="python3.11 run_slicegpt_perplexity.py --model $model_name --save-dir /storage/paulclotan/SmartSliceGPT/save_work2 --sparsity 0.25 --no-wandb --device $gpu_device --cal-dataset $dataset --hf-token $hf_token --single-layer-cut 1"
 
 # Define the output file
 model_name_save=${model_name//\//-}
@@ -41,7 +41,7 @@ echo -e "Baseline ppl for default cut: ">> "$output_file"
 eval $base_command --slice-percentage 0 >> "$output_file"
 
 # Loop 32 times for each slice layer
-for i in {0..40}; do
+for i in {0..50}; do
     # Echo a header for the iteration with True
     echo -e "\n\nRunning with --slice-layer $i --slice-percentage: $slice_percentage --add-dimension True" >> "$output_file"
     # Append the command output with --slice-layer as the loop counter, --slice-dimension from variable, and --add-dimension True to the output file

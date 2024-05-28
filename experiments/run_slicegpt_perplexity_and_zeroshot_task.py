@@ -363,56 +363,7 @@ def main() -> None:
     logging.info(f"Average accuracy across tasks: {acc_avg}")
 
 
-    ##version 2:
-    ### LM Eval Harness ###
 
-    print(f"\n\n\n\n\nThe model_adapter used in fucking slicing...?")
-    hflm = HFLM(pretrained=model_adapter, tokenizer=tokenizer, batch_size=args.batch_size)
-
-    print(f"\n\n\n The tasts are: {args.tasks}\n\n")
-    if args.tasks is None:
-        task_names = tasks.ALL_TASKS
-        print(f"\n\n\n The tasks.all_tasks is: {tasks.ALL_TASKS}")
-    else:
-        print(f"\n\n\n The function.. has the output: {lm_eval_utils.pattern_match(args.tasks, ALL_TASKS)}")
-        task_names = lm_eval_utils.pattern_match(args.tasks, ALL_TASKS)
-
-    print(f"\n\n\n The tasts are after if: {task_names}\n\n")
-
-    results = lm_eval.simple_evaluate(hflm, tasks=task_names, num_fewshot=args.num_fewshot, batch_size=args.batch_size)[
-        'results'
-    ]
-    logging.info(json.dumps(results, indent=2))
-
-    def calculate_avg_accuracy(task_names, results):
-        n_tasks = len(task_names)
-        acc_cumul = sum(
-            result.get('acc_norm,none', result['acc,none']) for task, result in results.items() if 'mmlu' not in task
-        )
-
-        questions_per_mmlu_task = {
-            task_name: lm_eval.tasks.get_task_dict([task_name])[task_name].dataset["test"].num_rows
-            for task_name in task_names
-            if 'mmlu' in task_name
-        }
-
-        if not questions_per_mmlu_task:
-            return acc_cumul / n_tasks
-
-        # Calculate average accuracy for mmlu tasks, weighted by number of questions in each task
-        acc_mmlu = sum(
-            result.get('acc_norm,none', result['acc,none']) * questions_per_mmlu_task[task]
-            for task, result in results.items()
-            if 'mmlu' in task
-        )
-        acc_mmlu_avg = acc_mmlu / sum(questions_per_mmlu_task.values())
-        wandb.log({'acc_mmlu_avg': acc_mmlu_avg})
-
-        return (acc_cumul + acc_mmlu_avg) / (n_tasks - len(questions_per_mmlu_task) + 1)
-
-    acc_avg = calculate_avg_accuracy(task_names, results)
-    wandb.log({'acc_avg': acc_avg})
-    logging.info(f"Average accuracy across tasks: {acc_avg}")
 
 
 if __name__ == "__main__":

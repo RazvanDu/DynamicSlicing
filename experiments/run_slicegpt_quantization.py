@@ -11,9 +11,18 @@ import logging
 import os
 
 import torch
-import wandb
 
-from slicegpt import data_utils, gpu_utils, hf_utils, layernorm_fusion, rotate, utils, quantize
+import json
+
+import lm_eval
+import wandb
+from lm_eval import tasks
+from lm_eval import utils as lm_eval_utils
+from lm_eval.api.registry import ALL_TASKS
+from lm_eval.models.huggingface import HFLM
+from lm_eval.tasks import initialize_tasks
+
+from slicegpt import data_utils, gpu_utils, hf_utils, layernorm_fusion, rotate, utils, quantize, quantize2
 from slicegpt.config import config
 
 utils.configure_logging()
@@ -44,7 +53,7 @@ def argparser() -> argparse.Namespace:
         ],
         default="facebook/opt-125m",
     )
-    parser.add_argument("--dtype", type=str, help="Data type to use.", choices=["fp32", "fp16"], default="fp16")
+    parser.add_argument("--dtype", type=str, help="Data type to use.", choices=["fp32", "fp16"], default="fp32")
     parser.add_argument(
         "--cal-dataset",
         type=str,
@@ -121,6 +130,27 @@ def argparser() -> argparse.Namespace:
         default=[0]  # Default to a vector containing a single zero, adjust as necessary
     )
 
+    parser.add_argument("--quantization-limit-one", type=float, default=1.0, help="The quantization limit between the first and second area [should be between 0 and 1].")
+    parser.add_argument("--quantization-limit-two", type=float, default=1.0, help="The quantization limit between the second and third area. [Should be between 0 and 1]")
+
+    parser.add_argument("--quant-second-zone-percent", type=float, default=1.0,
+                        help="Used as a int. ex- value 2 means that the type of this zone, will for example be from float16 -> float8")
+    parser.add_argument("--quant-third-zone-percent", type=float, default=1.0,
+                        help="Used as a int. ex- value 2 means that the type of this zone, will for example be from float16 -> float8")
+
+    # zero-shot-task arguments
+    parser.add_argument(
+        '--tasks',
+        nargs='+',
+        default=["piqa", "hellaswag", "arc_easy", "arc_challenge", "winogrande"],
+        choices=lm_eval_utils.MultiChoice(tasks.ALL_TASKS),
+    )
+    parser.add_argument('--num-fewshot', type=int, default=0, help="Number of fewshots for all tasks.")
+    parser.add_argument("--batch-size", type=int, default=1, help="Batch size for evaluating with lm eval harness.")
+
+
+
+
     args = parser.parse_args()
 
     logging.debug(f'Parsed arguments:')
@@ -129,6 +159,18 @@ def argparser() -> argparse.Namespace:
 
     if not 0 <= args.sparsity < 1:
         raise argparse.ArgumentTypeError(f"Sparsity should be in the range [0, 1)")
+
+    for arg in [args.quantization_limit_one, args.quantization_limit_two]:
+        if not (0 <= arg <= 1):
+            raise ValueError(f"All parameters should be between 0 and 1. Invalid value: {arg}")
+
+        # Check if quantization-limit-one is less than quantization-limit-two
+    #if args.quantization_limit_one > args.quantization_limit_two:
+    #    raise ValueError("quantization-limit-one should be less than quantization-limit-two")
+
+        # Check if quant-second-zone-percent is less than quantization-third-zone-percent
+    #if args.quant_second_zone_percent > args.quant_third_zone_percent:
+    #    raise ValueError("quant-second-zone-percent should be less than quantization-third-zone-percent")
 
 
     if args.device:
@@ -146,7 +188,6 @@ def argparser() -> argparse.Namespace:
 
 def main() -> None:
     logging.info("Running SliceGPT perplexity experiment")
-
     args = argparser()
     '''
     print(f"current argunemts are: layer: {args.slice_layer} and type {type(args.slice_layer)}"
@@ -223,7 +264,23 @@ def main() -> None:
         utils.cleanup_memory()
 
     # replace modules with compressible equivalents
+    # replace modules with compressible equivalents
+    layernorm_fusion.replace_layers(model_adapter)
 
+    # fuse layernorms and add rotations to skip connections
+    layernorm_fusion.fuse_modules(model_adapter)
+
+    if args.eval_fused_model and not args.distribute_model:
+        model.to(config.device)
+
+        dataset_ppl = gpu_utils.evaluate_ppl(model_adapter, test_loader)
+        logging.info(f'Post-fusion: {dataset_ppl:.4f}')
+        wandb.log({"post_fusion_ppl": dataset_ppl})
+
+        model.cpu()
+
+        # run GC and cleanup GPU memory
+        utils.cleanup_memory()
 
     original_param_count = sum(int(p.nelement()) for p in model.parameters())
     logging.info(f'Original model parameters: {original_param_count:,d}')
@@ -232,6 +289,8 @@ def main() -> None:
     ignore_tokens = [tokenizer.pad_token_id]
     quantize.quantize(model_adapter, train_loader, args.vector_cut,
                             args.slice_layer, args.slice_percentage,
+                            args.quantization_limit_one, args.quantization_limit_two,
+                            args.quant_second_zone_percent, args.quant_third_zone_percent,
                             ignore_tokens=ignore_tokens)
 
 
@@ -253,6 +312,60 @@ def main() -> None:
     sliced_fraction = 1.0 - sliced_param_count / original_param_count
     logging.info(f'Sliced model parameters: {sliced_param_count:,d} (sliced fraction {sliced_fraction:.4f})')
     print(f'Sliced model parameters: {sliced_param_count:,d} (sliced fraction {sliced_fraction:.4f})')
+
+
+
+    ### LM Eval Harness ###
+
+
+    hflm = HFLM(pretrained=model_adapter.model, tokenizer=tokenizer, batch_size=args.batch_size)
+
+    print(f"\n\n\n The tasts are: {args.tasks}\n\n")
+    if args.tasks is None:
+        task_names = tasks.ALL_TASKS
+        print(f"\n\n\n The tasks.all_tasks is: {tasks.ALL_TASKS}")
+    else:
+        print(f"\n\n\n The function.. has the output: { lm_eval_utils.pattern_match(args.tasks, ALL_TASKS)}")
+        task_names = lm_eval_utils.pattern_match(args.tasks, ALL_TASKS)
+
+    print(f"\n\n\n The tasts are after if: {task_names}\n\n")
+
+    results = lm_eval.simple_evaluate(hflm, tasks=task_names, num_fewshot=args.num_fewshot, batch_size=args.batch_size)[
+        'results'
+    ]
+    logging.info(json.dumps(results, indent=2))
+
+
+    def calculate_avg_accuracy(task_names, results):
+        n_tasks = len(task_names)
+        acc_cumul = sum(
+            result.get('acc_norm,none', result['acc,none']) for task, result in results.items() if 'mmlu' not in task
+        )
+
+        questions_per_mmlu_task = {
+            task_name: lm_eval.tasks.get_task_dict([task_name])[task_name].dataset["test"].num_rows
+            for task_name in task_names
+            if 'mmlu' in task_name
+        }
+
+        if not questions_per_mmlu_task:
+            return acc_cumul / n_tasks
+
+        # Calculate average accuracy for mmlu tasks, weighted by number of questions in each task
+        acc_mmlu = sum(
+            result.get('acc_norm,none', result['acc,none']) * questions_per_mmlu_task[task]
+            for task, result in results.items()
+            if 'mmlu' in task
+        )
+        acc_mmlu_avg = acc_mmlu / sum(questions_per_mmlu_task.values())
+        wandb.log({'acc_mmlu_avg': acc_mmlu_avg})
+
+        return (acc_cumul + acc_mmlu_avg) / (n_tasks - len(questions_per_mmlu_task) + 1)
+
+    acc_avg = calculate_avg_accuracy(task_names, results)
+    wandb.log({'acc_avg': acc_avg})
+    logging.info(f"Average accuracy across tasks: {acc_avg}")
+
 
 
 if __name__ == "__main__":

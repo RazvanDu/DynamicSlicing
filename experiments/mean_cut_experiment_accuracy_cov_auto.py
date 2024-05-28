@@ -12,16 +12,13 @@ def parse_args():
     print("Usage:  --model <model_name> --cuda_device <gpu_device ex: cuda:0> --vector-cut <cut_dimensions> --source for vector <source_name> --dataset <dataset_name>")
     parser.add_argument('--model', type=str, default='microsoft/phi-2', help='Model to use.')
     parser.add_argument('--source-for-vector', type=str, default='wikitext2', help='Source from where the vector-cut is taken from')
-    parser.add_argument('--cut-percent', type=str, default='80%',
-                        help='The percent for the cut-vector used to generate it')
     parser.add_argument('--dataset', type=str, default='wikitext2', help='Dataset on which we evaluate.')
     parser.add_argument('--cuda-device', type=str, default='cuda:0', help='CUDA device to use.')
     parser.add_argument(
-        "--vector-cut",
-        type=float,
+        '--tasks',
         nargs='+',
-        help="Vector of floats, representing the new cutting dimensions",
-        default=[0]  # Default to a vector containing a single zero, adjust as necessary
+        default= None,
+        choices=["piqa", "hellaswag", "arc_easy", "arc_challenge", "winogrande", "boolq", "gsm8k_cot"],
     )
     return parser.parse_args()
 
@@ -32,19 +29,49 @@ args = parse_args()
 model_name_save = args.model.replace("/", "-")
 print(model_name_save)
 
-save_path = (f"/storage/paulclotan/SmartSliceGPT/experiments/experiment-output-folder/perplexity_results_{model_name_save}_"
-             f"{args.dataset}_on_{args.source_for_vector}_{args.cut_percent}_cut_percent.txt")
+save_path = (f"/storage/paulclotan/SmartSliceGPT/experiments/experiment-output-folder/accur_results_{model_name_save}_"
+             f"_cov_benchmark.txt")
 os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
 with open(save_path, 'w') as file:
     file.write(
-        f"Experiment Summary:"
+        f"Experiment Summary." 
+        f"\nThis experiment is based on the pattern found in the coeficient of variation."
+        f"\nThe limit used for this experiment is: 300"
         f"\nModel: {args.model}"
         f"\nDataset: {args.dataset}"
         f"\nSource for Vector-Cut: {args.source_for_vector}"
-        f"\nThe cut vector was realized by cutting {args.cut_percent}%"
-        f"\nVector: {args.vector_cut}"
-        f"\nCUDA Device: {args.cuda_device}\n\n")
+        f"\nEvaluated on: {args.tasks}%"
+        f"\nCUDA Device: {args.cuda_device}")
+    file.flush()
+
+    # get the pattern:
+
+    command = (f"python3.11 run_slicegpt_perplexity.py --model {args.model} --save-dir "
+               f"/storage/paulclotan/SmartSliceGPT/save_work2 --sparsity 0.25 --no-wandb "
+               f"--device {args.cuda_device} --hf-token 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 "
+               f"--cal-dataset {args.source_for_vector} --single-layer-cut 1")
+
+    # Run the command and capture the output
+    result = subprocess.run(shlex.split(command), capture_output=True, text=True)
+    output = result.stdout
+
+    # Extract skewness values from the output string
+    skewness_values = re.findall(r'Skewness for each column: (-?\d+\.\d+e?-?\d*)', output)
+
+    # Apply the absolute value function to each skewness value and convert to float
+    #abs_skewness_values = [str(abs(float(value))) for value in skewness_values] # without abs for the other abs experiment(matrix abs experiment- no abs here)
+
+    abs_skewness_values = [str(float(value)) for value in skewness_values] # without abs for the other abs experiment(matrix abs experiment- no abs here)
+
+    # Create the list of values separated by one space
+    skewness_list_str = ' '.join(abs_skewness_values)
+
+    print(
+        f"\nVector: {skewness_list_str}\n\n\nn")
+
+    file.write(
+        f"\nVector: {skewness_list_str}\n\n\nn")
     file.flush()
 
     # Adjust the mean of the graph
@@ -54,9 +81,14 @@ with open(save_path, 'w') as file:
         add_to_mean = cut_mean - amount
         print(f"Running for: variation: {amount} with add to mean: {add_to_mean}")
 
-        values = args.vector_cut
+        string_list = skewness_list_str.split()
 
-        print(f"The value list is: {values}, with the type {type(values)}")
+        # Convert each string in the list to a float
+        float_vector = [float(num) for num in string_list]
+
+        values = float_vector
+
+        print(f"\nThe value list is: {values}, with the type {type(values)}")
 
         layers = list(range(len(values) + 1))
 
@@ -85,34 +117,33 @@ with open(save_path, 'w') as file:
 
         print(f"the adjusted dimensions are: {adjusted_dimensions}")
 
+        string_tasks = ' '.join(args.tasks)
         #run the run_slice_gpt
         command = (f"python3.11 run_slicegpt_perplexity.py --model {args.model} --save-dir "
                    f"/storage/paulclotan/SmartSliceGPT/save_work2 --sparsity 0.25 --no-wandb "
                    f"--device {args.cuda_device} --hf-token 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 "
-                   f"--vector-cut {adjusted_dimensions} --cal-dataset {args.dataset} --single-layer-cut 0")
-
+                   f"--vector-cut {adjusted_dimensions} --cal-dataset {args.dataset} --single-layer-cut 0 "
+                   f"--tasks {string_tasks}")
+        print(string_tasks,"The type of the tasks is", type(string_tasks))
         command_to_run = shlex.split(command)
-
 
 
         result = subprocess.run(command_to_run, capture_output=True, text=True)
         output = result.stdout
         # Extract perplexity value using regex
-        perplexity_match = re.search(r"After rotating and slicing (\d+\.\d+)", output)
-        print(perplexity_match.group(1))
 
-        if perplexity_match:
-            perplexity_value = perplexity_match.group(1)
-            print(f"\nVariation {amount}%, adding to the mean: {add_to_mean}, perplexity: {perplexity_value}\n")
-            file.write(f"\nVariation {amount}%, adding to the mean: {add_to_mean}, perplexity: {perplexity_value}\n")
+        accuracy_results_match = re.search(r"The accuracy results are: (\{.*\})", output, re.DOTALL)
+        if accuracy_results_match:
+            accuracy_results = accuracy_results_match.group(1)
+
+            print(
+                f"Variation {amount}%, adding to the mean: {add_to_mean}, Average accuracy across tasks is: {accuracy_results}")
+            file.write(
+                f"\nVariation {amount}%, adding to the mean: {add_to_mean}, Average accuracy: {accuracy_results}\n")
             file.flush()
+        else:
+            file.write("No accuracy results found.")
+        file.flush()
 
 
-# values vector for PHI-2 alpaca, basecut 30%, cut vector: 80% layerwise: values = [
-#             3.1669, 2.9433, 3.0739, 3.1901, 3.294, 3.2841, 3.2285, 3.2603, 3.3077, 3.3068,
-#             3.3112, 3.2988, 3.2954, 3.2786, 3.3106, 3.3605, 3.432, 3.4543, 3.4634, 3.5715,
-#             3.6416, 3.7818, 3.8982, 3.9862, 4.1137, 4.236, 4.4062, 4.5342, 4.6055, 4.5875,
-#             4.6307, 4.6348
-#         ]
-# PHI-2 WIKITEXt, cut vector: 80% layerwise: [13.9559, 11.3622, 12.4713, 14.0541, 14.078, 13.719, 14.0593, 13.5304, 13.7168, 13.7191, 13.8314, 13.0987, 12.7281, 12.3108, 12.3131, 12.3014, 12.5094, 12.997, 13.167, 13.1269, 13.4453, 13.7476, 14.3025, 14.9632, 15.331, 16.2428, 17.5334, 19.2541, 20.1539, 21.16, 21.5895, 21.8606]
-# ``` &#8203;``【oaicite:0】``&#8203;
+
