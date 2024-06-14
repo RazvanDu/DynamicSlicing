@@ -51,6 +51,11 @@ class UninitializedMistralForCausalLM(MistralForCausalLM):
         # Prevent weight initialization
         pass
 
+class UninitializedQwen2ForCausalLM(MistralForCausalLM):
+    def _init_weights(self, _) -> None:
+        # Prevent weight initialization
+        pass
+
 
 
 def skip(*args, **kwargs) -> None:
@@ -105,7 +110,7 @@ def get_model_and_tokenizer(
             model = OPTForCausalLM.from_pretrained(model_path, torch_dtype=dtype)
             model.config.torch_dtype = dtype
         model_adapter = OPTModelAdapter(model)
-    elif "meta-llama" in model_path:
+    elif "meta-llama" in model_path or "Llama-2" in model_path or "llama-2" in model_path:
         if uninitialized:
             config = LlamaConfig.from_pretrained(model_path, token=token)
             model = UninitializedLlamaForCausalLM(config)
@@ -143,12 +148,14 @@ def get_model_and_tokenizer(
             model = MistralForCausalLM.from_pretrained(model_path, torch_dtype=dtype, token=token)
             model.config.torch_dtype = dtype
 
+
         tokenizer.add_special_tokens({"pad_token": "<pad>"})  # Mistral models don't have a pad token by default
+
         model.config.pad_token_id = tokenizer.pad_token_id
+        """
         model.resize_token_embeddings(len(tokenizer), pad_to_multiple_of=8)
+        """
         model_adapter = MistralModelAdapter(model)
-
-
 
     else:
         raise NotImplementedError

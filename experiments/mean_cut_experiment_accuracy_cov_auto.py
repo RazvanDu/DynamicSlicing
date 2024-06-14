@@ -13,13 +13,17 @@ def parse_args():
     parser.add_argument('--model', type=str, default='microsoft/phi-2', help='Model to use.')
     parser.add_argument('--source-for-vector', type=str, default='wikitext2', help='Source from where the vector-cut is taken from')
     parser.add_argument('--dataset', type=str, default='wikitext2', help='Dataset on which we evaluate.')
-    parser.add_argument('--cuda-device', type=str, default='cuda:0', help='CUDA device to use.')
+    parser.add_argument('--accuracy-limit', type=int, default=-1, help='CUDA device to use.')
+    parser.add_argument('--cov-limit', type=float, default=1.0, help='The covariance limit.')
+
     parser.add_argument(
         '--tasks',
         nargs='+',
         default= None,
-        choices=["piqa", "hellaswag", "arc_easy", "arc_challenge", "winogrande", "boolq", "gsm8k_cot"],
+        choices=["piqa", "hellaswag", "arc_easy", "arc_challenge", "winogrande", "boolq", "gsm8k_cot", "mlqa_en", "xlsum_en", "mmlu", "social_iqa"],
     )
+    parser.add_argument('--cuda-device', type=str, default='cuda:0', help='CUDA device to use.')
+
     return parser.parse_args()
 
 args = parse_args()
@@ -29,20 +33,21 @@ args = parse_args()
 model_name_save = args.model.replace("/", "-")
 print(model_name_save)
 
-save_path = (f"/storage/paulclotan/SmartSliceGPT/experiments/experiment-output-folder/accur_results_{model_name_save}_"
-             f"_cov_benchmark.txt")
+save_path = (f"/storage/paulclotan/SmartSliceGPT/experiments/experiment_fixed_result/activation_accur_perp_results_{model_name_save}_"
+             f"_cov_benchmark_limit_{args.accuracy_limit}_cov_limit_{args.cov_limit}_final.txt")
 os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
 with open(save_path, 'w') as file:
     file.write(
         f"Experiment Summary." 
         f"\nThis experiment is based on the pattern found in the coeficient of variation."
-        f"\nThe limit used for this experiment is: 300"
+        f"\nThe limit used for this experiment is: {args.accuracy_limit}"
         f"\nModel: {args.model}"
         f"\nDataset: {args.dataset}"
         f"\nSource for Vector-Cut: {args.source_for_vector}"
         f"\nEvaluated on: {args.tasks}%"
-        f"\nCUDA Device: {args.cuda_device}")
+        f"\nCUDA Device: {args.cuda_device}"
+        f"\nCov limit: {args.cov_limit}")
     file.flush()
 
     # get the pattern:
@@ -50,7 +55,7 @@ with open(save_path, 'w') as file:
     command = (f"python3.11 run_slicegpt_perplexity.py --model {args.model} --save-dir "
                f"/storage/paulclotan/SmartSliceGPT/save_work2 --sparsity 0.25 --no-wandb "
                f"--device {args.cuda_device} --hf-token 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 "
-               f"--cal-dataset {args.source_for_vector} --single-layer-cut 1")
+               f"--cal-dataset {args.source_for_vector} --single-layer-cut 1 --cov-limit {args.cov_limit} ")
 
     # Run the command and capture the output
     result = subprocess.run(shlex.split(command), capture_output=True, text=True)
@@ -67,11 +72,10 @@ with open(save_path, 'w') as file:
     # Create the list of values separated by one space
     skewness_list_str = ' '.join(abs_skewness_values)
 
-    print(
-        f"\nVector: {skewness_list_str}\n\n\nn")
+
 
     file.write(
-        f"\nVector: {skewness_list_str}\n\n\nn")
+        f"\nVector: {skewness_list_str}\n\n\n")
     file.flush()
 
     # Adjust the mean of the graph
@@ -100,7 +104,7 @@ with open(save_path, 'w') as file:
         # Normalize the values
         min_graph = min(values)
         max_graph = max(values)
-        values = [value / max_graph for value in values]
+        values = [(value - min_graph) / (max_graph - min_graph) for value in values]
 
 
         mean_graph = np.mean(values)
@@ -123,13 +127,24 @@ with open(save_path, 'w') as file:
                    f"/storage/paulclotan/SmartSliceGPT/save_work2 --sparsity 0.25 --no-wandb "
                    f"--device {args.cuda_device} --hf-token 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 "
                    f"--vector-cut {adjusted_dimensions} --cal-dataset {args.dataset} --single-layer-cut 0 "
-                   f"--tasks {string_tasks}")
+                   f"--tasks {string_tasks} --accuracy-limit {args.accuracy_limit}")
         print(string_tasks,"The type of the tasks is", type(string_tasks))
         command_to_run = shlex.split(command)
 
 
         result = subprocess.run(command_to_run, capture_output=True, text=True)
         output = result.stdout
+
+        # Extract perplexity value using regex
+
+        perplexity_match = re.search(r"After rotating and slicing (\d+\.\d+)", output)
+        #print(perplexity_match.group(1))
+        if perplexity_match:
+            perplexity_value = perplexity_match.group(1)
+            print(f"\nVariation {amount}%, adding to the mean: {add_to_mean}, perplexity: {perplexity_value}\n")
+            file.write(f"\n\n\nVariation {amount}%, adding to the mean: {add_to_mean}, perplexity: {perplexity_value}\n")
+
+
         # Extract perplexity value using regex
 
         accuracy_results_match = re.search(r"The accuracy results are: (\{.*\})", output, re.DOTALL)

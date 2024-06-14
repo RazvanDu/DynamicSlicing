@@ -8,11 +8,11 @@ from tqdm import tqdm
 
 import numpy as np
 
+from . import data_utils
 from .config import config
 from .model_adapter import LayerAdapter, ModelAdapter
 from .model_utils import get_layer0_inputs, get_signals
 from .utils import cleanup_memory, map_tensors
-
 '''
 def slicing_vector_generation(nr_layers, initial_dimension):
     new_dim = []
@@ -26,72 +26,9 @@ def read_slicing_dimensions():
     with open(file_path, 'r') as file:
         new_dim = [int(line.strip()) for line in file.readlines()]
     return np.array(new_dim)
-'''
-def slicing_vector_generation(nr_layers, initial_dimension):
-    target_avg_value = initial_dimension * 0.7  # 30% reduction target
 
-    diff = 0
 
-    # Generate initial values randomly within ±20% of the initial dimension
-    new_dim = np.random.uniform(1 - diff, 1 + diff, nr_layers + 1) * target_avg_value
 
-    # Adjust the generated values to ensure the average is exactly as required
-    new_dim_adjusted = adjust_values_to_target_average(new_dim, target_avg_value, diff)
-
-    # Ensure the array contains integers
-    new_dim_adjusted = np.round(new_dim_adjusted).astype(int)
-
-    return new_dim_adjusted
-'''
-
-'''
-// slicing a single layer, one by one with given parameters to the script.
-def slice_particular_layer(nr_layers, initial_dimension, layer_number, amount, add_or_substract):
-    # Create a vector with all elements set to the initial_dimension
-    cut_dimension = initial_dimension * 0.7 # 0.7
-    #print(initial_dimension, cut_dimension)
-    new_dim = np.full(nr_layers + 1, cut_dimension)
-
-    # Check if the layer_number is within the range of the layers
-
-    # Modify the dimension of the specified layer based on the add_or_substract parameter
-    #print(f"add or substract is: {add_or_substract}, with the type: {type(add_or_substract)}")
-    if add_or_substract == False:
-        # Ensure that the layer dimension cannot be less than 0 after subtraction
-        new_dim[layer_number] = max(new_dim[layer_number] - amount, 0)
-        #print(f"The new dim of the layer was substracted, new dim:{new_dim[layer_number]}")
-    else:
-        new_dim[layer_number] += amount
-        #print(f"The new dim of the layer was added, new dim:{new_dim[layer_number]}")
-
-    new_dim = np.round(new_dim).astype(int)
-
-    return new_dim
-
-#manual testing
-def slice_particular_layer(nr_layers, initial_dimension, layer_number, amount, add_or_substract):
-    # Create a vector with all elements set to the initial_dimension
-    cut_dimension = initial_dimension * 0.7 # 0.7
-    #print(initial_dimension, cut_dimension)
-    new_dim = np.full(nr_layers + 1, cut_dimension)
-
-    # Check if the layer_number is within the range of the layers
-
-    # Modify the dimension of the specified layer based on the add_or_substract parameter
-    #print(f"add or substract is: {add_or_substract}, with the type: {type(add_or_substract)}")
-    if not add_or_substract:
-        new_dim[layer_number] = max(new_dim[layer_number] - amount, 0)
-        print(f"The new dim of the layer was substracted, new dim:{new_dim[layer_number]}")
-    else:
-        new_dim[layer_number] += amount
-        print(f"The new dim of the layer was added, new dim:{new_dim[layer_number]}")
-
-    new_dim = np.round(new_dim).astype(int)
-
-    #print(f"hardcoded vector version for testing the perplexity: {new_dim}" )
-
-    return new_dim
-'''
 '''
 FUNCTION TO PERFORM PERCENTUAL CUT PER LAYER
 '''
@@ -288,11 +225,13 @@ def rotate_and_slice_sequential(
     This method works for models where the MLP block is computed after the attention block.
     """
 
-
     #double_pattern_cut - used to determine if we are determining a pattern for the slicing,
     #or executing a variation of the cutting. will be judged based on single_layer_cut - if 1(true) - we are evaluating the patter, if not we are slicing
     if single_layer_cut == 0: # we are using a pattern to cut the vector
-        double_pattern_cut = True
+        double_pattern_cut = False
+    #this must be turned back to true if we want to do a tripple cut patern
+
+
     # write the logic to adapt the code to be able to run for perplexity graph. current logic
     #assumes that the opt and llama models will be always cut with 2 values per layer, not with one.
     #that logic for perplexity cutting graphs does not work.
@@ -682,7 +621,7 @@ def pca_calc(
     # Assuming eigen_vec is a NumPy array and you already have it converted to a PyTorch tensor
     # Sample eigen_vec as a NumPy array (replace this with your actual eigen_vec)
 
-
+    '''
     def compute_skewness(array):
         mean = torch.mean(array)
         diffs = array - mean
@@ -702,15 +641,16 @@ def pca_calc(
     # Compute skewness for each column (axis=0)
     if metric_to_use == 1:
         matrix_cv = compute_coefficient_of_variation(eigen_vec)
-    else:
-        matrix_cv = compute_skewness(torch.abs(eigen_vec)) # experiment matAbs
+    #else:
+       # matrix_cv = compute_skewness(torch.abs(eigen_vec)) # experiment matAbs
         #matrix_cv = compute_skewness(eigen_vec)
 
 
-    print(f"\n\n\nSkewness for each column: {matrix_cv}")
+    #print(f"\n\n\nSkewness for each column2: {matrix_cv}")
 
 
     condition_number = eig_val.max() / eig_val[eig_val > 0].min()
     #print(condition_number)
+    '''
     return eig_val, eigen_vec
 
