@@ -424,7 +424,7 @@ def main() -> None:
             print(f"pruning layer {i} name {name}")
             W_metric = torch.abs(subset[name].weight.data) * torch.sqrt(
                 wrapped_layers[name].scaler_row.reshape((1, -1)))
-
+ 
               
             if 'down_proj' in name:
                 mean = torch.mean(torch.abs(subset[name].weight.data))
