@@ -20,9 +20,8 @@ from lm_eval import tasks
 from lm_eval import utils as lm_eval_utils
 from lm_eval.api.registry import ALL_TASKS
 from lm_eval.models.huggingface import HFLM
-from lm_eval.tasks import initialize_tasks
 
-from slicegpt import data_utils, gpu_utils, hf_utils, layernorm_fusion, rotate, utils, quantize, quantize2
+from slicegpt import data_utils, gpu_utils, hf_utils, layernorm_fusion, utils, quantize
 from slicegpt.config import config
 
 utils.configure_logging()
@@ -288,10 +287,10 @@ def main() -> None:
 
     ignore_tokens = [tokenizer.pad_token_id]
     quantize.quantize(model_adapter, train_loader, args.vector_cut,
-                            args.slice_layer, args.slice_percentage,
-                            args.quantization_limit_one, args.quantization_limit_two,
-                            args.quant_second_zone_percent, args.quant_third_zone_percent,
-                            ignore_tokens=ignore_tokens)
+                      args.slice_layer, args.slice_percentage,
+                      args.quantization_limit_one, args.quantization_limit_two,
+                      args.quant_second_zone_percent, args.quant_third_zone_percent,
+                      ignore_tokens=ignore_tokens)
 
 
     if args.save_dir:

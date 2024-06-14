@@ -10,10 +10,10 @@ import numpy as np
 import re
 import math
 
-from .config import config
-from .model_adapter import LayerAdapter, ModelAdapter
-from .model_utils import get_layer0_inputs, get_signals
-from .utils import cleanup_memory, map_tensors
+from slicegpt.config import config
+from slicegpt.model_adapter import LayerAdapter, ModelAdapter
+from slicegpt.model_utils import get_layer0_inputs, get_signals
+from slicegpt.utils import cleanup_memory, map_tensors
 
 
 def quantize_dynamic(data, bits):

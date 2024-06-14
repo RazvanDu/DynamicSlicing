@@ -34,7 +34,7 @@ args = parse_args()
 vector_cut = "1 " * 50
 
 # Create the output directory including the model and dataset
-output_dir = f"/storage/paulclotan/SmartSliceGPT/experiments/quantization/"
+output_dir = f"/experiments/old_experiments/quantization/"
 os.makedirs(output_dir, exist_ok=True)
 
 # Construct the output file path with the dataset in the filename
