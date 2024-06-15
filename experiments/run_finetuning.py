@@ -69,24 +69,15 @@ def argparser():
     parser.add_argument(
         "--model",
         type=str,
-        help="OPT model to load; pass `facebook/opt-125m`.",
+        help="load model",
         choices=[
-            # OPT models
-            "facebook/opt-125m",
-            "facebook/opt-1.3b",
-            "facebook/opt-2.7b",
-            "facebook/opt-6.7b",
-            "facebook/opt-13b",
-            "facebook/opt-30b",
-            "facebook/opt-66b",
-            # LLAMA 2 Models
-            'meta-llama/Llama-2-7b-hf',
-            'meta-llama/Llama-2-13b-hf',
-            'meta-llama/Llama-2-70b-hf',
-            # Phi-2 model
-            'microsoft/phi-2',
+            # LLAMAmodels
+            'meta-llama/Meta-Llama-3-8B',
+            # mistral
+            'mistralai/Mistral-7B-v0.1',
+
         ],
-        default="facebook/opt-125m",
+        default="mistralai/Mistral-7B-v0.1",
     )
     parser.add_argument("--dtype", type=str, help="Data type to use.", choices=["fp32", "fp16"], default="fp16")
     parser.add_argument("--varied-seqlen", action="store_true", help="Varied sequence lengths in the calibration data.")

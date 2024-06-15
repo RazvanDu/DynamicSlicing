@@ -43,24 +43,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model",
         type=str,
-        help="Model to fine-tune",
+        help="model to lead",
         choices=[
-            # OPT models
-            "facebook/opt-125m",
-            "facebook/opt-1.3b",
-            "facebook/opt-2.7b",
-            "facebook/opt-6.7b",
-            "facebook/opt-13b",
-            "facebook/opt-30b",
-            "facebook/opt-66b",
-            # LLAMA 2 Models
-            'meta-llama/Llama-2-7b-hf',
-            'meta-llama/Llama-2-13b-hf',
-            'meta-llama/Llama-2-70b-hf',
-            # Phi-2 model
-            'microsoft/phi-2',
+            # LLAMAmodels
+            'meta-llama/Meta-Llama-3-8B',
+            # mistral
+            'mistralai/Mistral-7B-v0.1',
+
         ],
-        required=True,
+        default="mistralai/Mistral-7B-v0.1",
     )
     parser.add_argument(
         "--model-path", type=str, help="Path to the model to fine-tune (sliced or dense)", required=True

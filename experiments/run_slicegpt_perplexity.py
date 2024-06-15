@@ -2,6 +2,7 @@
 # Licensed under the MIT license.
 
 import os
+
 os.environ["WANDB_SERVICE_WAIT"] = "300"
 os.environ['TRANSFORMERS_CACHE'] = '/storage/paulclotan/SmartSliceGPT/models'
 
@@ -13,14 +14,20 @@ import wandb
 import sys
 import random
 
+# slice gpt dependency not found
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
 from slicegpt import data_utils, gpu_utils, hf_utils, layernorm_fusion, rotate, utils
 from slicegpt.config import config
+from slicegpt.layerwrapper import WrappedGPT
+
 from datasets import load_dataset
+
 from torch import nn
 
+import json
 import lm_eval
+from lm_eval import tasks
 from lm_eval import utils as lm_eval_utils
 from lm_eval.api.registry import ALL_TASKS
 from lm_eval.models.huggingface import HFLM
@@ -28,40 +35,20 @@ from lm_eval.models.huggingface import HFLM
 utils.configure_logging()
 
 
-
 def argparser() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--model",
         type=str,
-        help="OPT model to load; pass `facebook/opt-125m`.",
+        help="model to lead",
         choices=[
-            # OPT models
-            "facebook/opt-125m",
-            "facebook/opt-1.3b",
-            "facebook/opt-2.7b",
-            "facebook/opt-6.7b",
-            "facebook/opt-13b",
-            "facebook/opt-30b",
-            "facebook/opt-66b",
-            # LLAMA 2 Models
-            'meta-llama/Llama-2-7b-hf',
-            'meta-llama/Llama-2-13b-hf',
-            'meta-llama/Llama-2-70b-hf',
-            'togethercomputer/Llama-2-7B-32K-Instruct',
-            'Secbone/llama-2-13B-instructed',
-            #LLAMAmodels
+            # LLAMAmodels
             'meta-llama/Meta-Llama-3-8B',
-            'meta-llama/Meta-Llama-3-8B-Instruct',
-            # Phi-2 model
-            'microsoft/phi-2',
             # mistral
             'mistralai/Mistral-7B-v0.1',
-            'mistralai/Mistral-7B-Instruct-v0.1',
-
 
         ],
-        default="facebook/opt-125m",
+        default="mistralai/Mistral-7B-v0.1",
     )
     parser.add_argument("--dtype", type=str, help="Data type to use.", choices=["fp32", "fp16"], default="fp16")
     parser.add_argument(
@@ -110,6 +97,7 @@ def argparser() -> argparse.Namespace:
 
     parser.add_argument("--save-dir", type=str, default=None, help="Path to save the model.")
     parser.add_argument("--load-model-path", type=str, default=None, help="Path to load the sliced model from.")
+    parser.add_argument("--cov-limit", type=float, default=1.0, help="Covariance limit.")
 
     parser.add_argument('--hf-token', type=str, default=os.getenv('HF_TOKEN', None))
 
@@ -130,7 +118,8 @@ def argparser() -> argparse.Namespace:
     parser.add_argument("--accuracy-limit", type=int, default=-1,
                         help="The limit used in the evaluation of the results.")
 
-    #parse the vector
+
+    # parse the vector
     parser.add_argument(
         "--vector-cut",
         type=float,
@@ -141,14 +130,15 @@ def argparser() -> argparse.Namespace:
 
     parser.add_argument("--single-layer-cut", type=int, default=0,
                         help="Two cutting modes. 0- cut based on vector-instance of cut percentage"
-                            "1 - the cut is done for only 1 layer, for a given layer nr and percentage")
+                             "1 - the cut is done for only 1 layer, for a given layer nr and percentage")
 
     # zero-shot-task arguments
     parser.add_argument(
         '--tasks',
         nargs='+',
-        default = None,
-        choices=["piqa", "hellaswag", "arc_easy", "arc_challenge", "winogrande", "boolq", "gsm8k_cot", "mlqa_en", "xlsum_en", "mmlu", "social_iqa"],
+        default=None,
+        choices=["piqa", "hellaswag", "arc_easy", "arc_challenge", "winogrande", "boolq", "gsm8k_cot", "mlqa_en",
+                 "xlsum_en", "mmlu", "social_iqa"],
     )
 
     parser.add_argument('--num-fewshot', type=int, default=0, help="Number of fewshots for all tasks.")
@@ -181,8 +171,10 @@ def argparser() -> argparse.Namespace:
     return args
 
 
+#####
 def main() -> None:
     logging.info("Running SliceGPT perplexity experiment")
+
 
     # TODO: ADAPT THIS!
     nsamples = 128
@@ -207,15 +199,14 @@ def main() -> None:
             args.model, args.load_model_path, args.sparsity, args.hf_token
         )
     else:
-        # load one of the pre-trained models
         model_adapter, tokenizer = hf_utils.get_model_and_tokenizer(args.model, token=args.hf_token, dtype=config.dtype)
+
 
 
     part_model = model_adapter.model.to(args.device)
     model = part_model.model
 
 
-    print(f"new cutting dimensions are {args.vector_cut}")
     def reset_model_device() -> None:
         if args.distribute_model:
             # distribute model across available GPUs
@@ -308,55 +299,42 @@ def main() -> None:
 
     model_adapter.model.to(config.device)
 
-
     dataset_ppl = gpu_utils.evaluate_ppl(model_adapter, test_loader)
     logging.info(f'After rotating and slicing {dataset_ppl:.4f}')
     print(f'After rotating and slicing {dataset_ppl:.4f}')
     wandb.log({"sliced_ppl": dataset_ppl})
-    
+
     sliced_param_count = sum(int(p.nelement()) for p in model.parameters())
     sliced_fraction = 1.0 - sliced_param_count / original_param_count
     logging.info(f'Sliced model parameters: {sliced_param_count:,d} (sliced fraction {sliced_fraction:.4f})')
     print(f'Sliced model parameters: {sliced_param_count:,d} (sliced fraction {sliced_fraction:.4f})')
 
-
-
     ### LM Eval Harness ###
     # the lm eval harness ties the weights, but this should not be done for sliced models unless the lm_head was sliced
+    # necesary for opt to run. do not understand why atm.
     model_adapter.model.tie_weights = lambda: None
     model_adapter.model.to(config.device)
 
 
-    print(f"\n\n\nThe model adap is: {model_adapter}")
-    print(f"\nThe model is: {model_adapter.model}")
-    print(f"\nThe device is: {config.device}")
-
-
-    hflm = HFLM(pretrained=model_adapter.model, tokenizer=tokenizer)
+    hflm = HFLM(pretrained=model_adapter.model,
+                tokenizer=tokenizer)  # , batch_size=args.batch_size) , device = args.device
 
     if args.tasks is None:
         task_names = None
-        print(f"\n\n\n The tasks are : {task_names}. Stopping.")
         exit()
-    else:
-        print(f"\n\n\n The function.. has the output: {lm_eval_utils.pattern_match(args.tasks, ALL_TASKS)}")
-        task_names = lm_eval_utils.pattern_match(args.tasks, ALL_TASKS)
     task_names = args.tasks
-
 
     if args.accuracy_limit < 0:
         results = lm_eval.simple_evaluate(hflm, tasks=task_names)[
             'results'
         ]
-        print(f"No limit here")
     else:
-        print(f"\n Evaluating with the limit {args.accuracy_limit}")
         results = lm_eval.simple_evaluate(hflm, tasks=task_names, limit=args.accuracy_limit)[
             'results'
         ]
 
 
-    print(f"\nThe accuracy results are: {results}\n")
+    print(f"\n\nThe accuracy results are: {results}\n\n")
 
 
 if __name__ == "__main__":

@@ -30,9 +30,17 @@ def eval_arg_parser(interactive: bool = True) -> argparse.Namespace:
     parser.add_argument(
         "--model",
         type=str,
-        default="facebook/opt-125m",
-        help="Model to load",
+        help="model to load",
+        choices=[
+            # LLAMAmodels
+            'meta-llama/Meta-Llama-3-8B',
+            # mistral
+            'mistralai/Mistral-7B-v0.1',
+
+        ],
+        default="mistralai/Mistral-7B-v0.1",
     )
+
     path_group = parser.add_mutually_exclusive_group()
     path_group.add_argument(
         "--model-path",

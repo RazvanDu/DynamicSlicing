@@ -13,21 +13,6 @@ from .config import config
 from .model_adapter import LayerAdapter, ModelAdapter
 from .model_utils import get_layer0_inputs, get_signals
 from .utils import cleanup_memory, map_tensors
-'''
-def slicing_vector_generation(nr_layers, initial_dimension):
-    new_dim = []
-    for n_layer in range(nr_layers + 1):
-        new_dim.append(initial_dimension - ((30 / 100 - n_layer / nr_layers * 20 / 100) * initial_dimension))
-    new_dim = np.array(new_dim).astype('int')
-    return new_dim
-'''
-def read_slicing_dimensions():
-    file_path = "/storage/paulclotan/SmartSliceGPT/experiment_cut_search/layer_dimensions.txt"
-    with open(file_path, 'r') as file:
-        new_dim = [int(line.strip()) for line in file.readlines()]
-    return np.array(new_dim)
-
-
 
 '''
 FUNCTION TO PERFORM PERCENTUAL CUT PER LAYER
@@ -36,16 +21,11 @@ def slice_particular_layer_percent(nr_layers, initial_dimension, layer_number, p
 
     new_dim = np.full(nr_layers + 1, initial_dimension)
 
-
     new_dimension = initial_dimension * (1 - percentage)
-
-    print(f"The new dimension will be: {new_dimension}, with initial dimension {initial_dimension}, and cut percent: {percentage}")
 
     new_dim[layer_number] = new_dimension
 
     new_dim = np.round(new_dim).astype(int)
-
-    print(f"The new vector will be: {new_dim}")
 
     return new_dim
 
@@ -53,11 +33,7 @@ def get_slice_dimension_by_cut_vector(initial_dimension, vector_cut):
 
     new_dim = np.array(vector_cut) * initial_dimension
 
-    print(f"Cut vector is: {vector_cut}")
-
     new_dim = np.round(new_dim).astype(int)
-
-    print(f"The new vector will be: {new_dim}")
 
     return new_dim
 
@@ -75,7 +51,6 @@ def slice_attention_inputs(layer_adapter: LayerAdapter, new_embedding_dimension:
     for W in layer_adapter.get_attention_inputs():
         W.weight.data = W.weight.data[:, :new_embedding_dimension]
         W.in_features = new_embedding_dimension
-        #print(f"Slice attention input- dimension {W.weight.data.shape}")
 
     layer_adapter.layer.attn_shortcut_Q = layer_adapter.layer.attn_shortcut_Q[:new_embedding_dimension, :]
 
@@ -99,7 +74,6 @@ def slice_attention_output(layer_adapter: LayerAdapter, new_embedding_dimension:
     if W.bias is not None:
         W.bias.data = W.bias.data[:new_embedding_dimension]
     W.out_features = new_embedding_dimension
-    #(f"Slice attention output- dimension {W.weight.data.shape}")
 
 
 def rotate_mlp_input(layer_adapter: LayerAdapter, Q: torch.Tensor) -> None:
@@ -114,7 +88,6 @@ def slice_mlp_input(layer_adapter: LayerAdapter, new_embedding_dimension: int) -
     # Slice the MLP input weights.
     for W in layer_adapter.get_mlp_inputs():
         W.weight.data = W.weight.data[:, :new_embedding_dimension]
-        #print(f"Slice mlp input- dimension {W.weight.data.shape}")
         W.in_features = new_embedding_dimension
 
 
@@ -136,7 +109,6 @@ def slice_mlp_output(layer_adapter: LayerAdapter, new_embedding_dimension: int) 
     if W.bias is not None:
         W.bias.data = W.bias.data[:new_embedding_dimension]
     W.out_features = new_embedding_dimension
-    #print(f"Slice mlp output- dimension {W.weight.data.shape}")
 
 
 def rotate_embeddings(model_adapter: ModelAdapter, Q: torch.Tensor) -> None:
@@ -155,14 +127,11 @@ def slice_embeddings(model_adapter: ModelAdapter, new_embedding_dimension: int) 
     for W in model_adapter.get_embeddings():
         W.weight.data = W.weight.data[:, :new_embedding_dimension]
 
-######## poate pusca
 def slice_embeddings2(model_adapter: ModelAdapter, new_embedding_dimensions: np.array) -> None:
     # Slice the embeddings
     for i, W in enumerate(model_adapter.get_embeddings()):
-        #print("LOOKING AT LAYER ", i, new_embedding_dimensions[i])
         W.weight.data = W.weight.data[:, :new_embedding_dimensions[0]]
         logging.info(W.weight.data.shape)
-        #print(f"Slice emb- dimension {W.weight.data.shape}")
 
 def rotate_head(model_adapter: ModelAdapter, Q: torch.Tensor) -> None:
     # Rotate the head.
@@ -175,12 +144,10 @@ def rotate_head(model_adapter: ModelAdapter, Q: torch.Tensor) -> None:
 def slice_head(model_adapter: ModelAdapter, new_embedding_dimension: int) -> None:
     # Slice the head.
 
-    print(f"\n\n\nSlicinggus der headus\n\n\n\n")
     lm_head = model_adapter.get_lm_head()
     lm_head.weight.data = lm_head.weight.data[:, :new_embedding_dimension]
     lm_head.in_features = new_embedding_dimension
 
-    #print(f"Slice head- dimension {lm_head.weight.data.shape}")
 
 def rotate_and_slice(
     model_adapter: ModelAdapter,
@@ -217,24 +184,12 @@ def rotate_and_slice_sequential(
     single_layer_cut: int,
     do_slice_head: bool = False,
     ignore_tokens: list[int] | None = None,
-    double_pattern_cut: bool = False,
 ) -> None:
     """
     Rotate and slice a model, with interleaved slicing and PCA calculations
 
     This method works for models where the MLP block is computed after the attention block.
     """
-
-    #double_pattern_cut - used to determine if we are determining a pattern for the slicing,
-    #or executing a variation of the cutting. will be judged based on single_layer_cut - if 1(true) - we are evaluating the patter, if not we are slicing
-    if single_layer_cut == 0: # we are using a pattern to cut the vector
-        double_pattern_cut = False
-    #this must be turned back to true if we want to do a tripple cut patern
-
-
-    # write the logic to adapt the code to be able to run for perplexity graph. current logic
-    #assumes that the opt and llama models will be always cut with 2 values per layer, not with one.
-    #that logic for perplexity cutting graphs does not work.
 
     model_adapter.model.eval()
     dtype = next(iter(model_adapter.model.parameters())).dtype
@@ -256,8 +211,6 @@ def rotate_and_slice_sequential(
     logging.info("Rotate and slice layers")
     layers = model_adapter.get_layers()
 
-    #new_dimensions =slice_particular_layer_percent(len(layers), model_adapter.hidden_size, slice_layer_number,
-   #                                                slice_percentage)
 
     if single_layer_cut == 0:
         print("Vector cut")
@@ -266,18 +219,13 @@ def rotate_and_slice_sequential(
         print("single layer cut")
         new_dimensions = slice_particular_layer_percent(len(layers), model_adapter.hidden_size, slice_layer_number,
                                                         slice_percentage)
-    print(new_dimensions)
 
     rotate_embeddings(model_adapter, Q)
     slice_embeddings2(model_adapter, new_dimensions)
 
     logging.info("Rotate and slice layers")
-    #layers = model_adapter.get_layers()
 
     for idx, layer_adapter in enumerate(tqdm(layers, unit="layer", desc="Rotating and slicing")):
-        if double_pattern_cut:
-            idx = idx * 2
-            print(f"Doubling the index")
         layer = layer_adapter.layer
         layer.attn_shortcut_Q = Q.T.clone().to(dtype=dtype)
 
@@ -286,34 +234,22 @@ def rotate_and_slice_sequential(
 
         # rotate and slice the attention inputs to match previous layer
         rotate_attention_inputs(layer_adapter, Q)
-        if idx > 0 and double_pattern_cut:
-            slice_attention_inputs(layer_adapter, new_dimensions[idx-1])
-            print(f"Doubling the index2")
 
-        else:
-            slice_attention_inputs(layer_adapter, new_dimensions[idx])# new imp_dimensions
-        #slice_attention_inputs(layer_adapter, new_imp_dimensiions) # match matmul part
+        slice_attention_inputs(layer_adapter, new_dimensions[idx])
 
         # get signal between attention and mlp, rotate and slice
 
-        if idx > 0 and double_pattern_cut:
-            for i, inp in enumerate(inps):
-                args[i] = layer_adapter.get_updated_args(
-                    torch.matmul(inp.to(device=config.device), Q.to(dtype=dtype))[:, :, :new_dimensions[idx-1]].cpu(),
-                    args[i],
-                )
-        else:
-            for i, inp in enumerate(inps):
-                args[i] = layer_adapter.get_updated_args(
-                    torch.matmul(inp.to(device=config.device), Q.to(dtype=dtype))[:, :, :new_imp_emb_dimension].cpu(),
-                    args[i],
-                )
+        for i, inp in enumerate(inps):
+            args[i] = layer_adapter.get_updated_args(
+                torch.matmul(inp.to(device=config.device), Q.to(dtype=dtype))[:, :, :new_imp_emb_dimension].cpu(),
+                args[i],
+            )
 
         mlp_ln_inputs, _ = get_signals(layer_adapter, args, kwargs)
         _, Q = pca_calc(mlp_ln_inputs, ignore_masks)
         Q = Q.to(device=config.device, dtype=torch.float64)
 
-        layer.attn_shortcut_Q = torch.matmul(layer.attn_shortcut_Q, Q.to(dtype=dtype)[:, :new_imp_emb_dimension]) # match 2 lines below
+        layer.attn_shortcut_Q = torch.matmul(layer.attn_shortcut_Q, Q.to(dtype=dtype)[:, :new_imp_emb_dimension])
         rotate_attention_output(layer_adapter, Q)
         slice_attention_output(layer_adapter, new_imp_emb_dimension) # this must match slice_mlp_input
 
@@ -422,8 +358,8 @@ def rotate_and_slice_parallel(
         for i, inp in enumerate(inps):
             args[i] = layer_adapter.get_updated_args(
                 torch.matmul(inp.to(device=config.device), Q.to(dtype=dtype))[:, :, : int(new_imp_emb_dimension)].cpu(),                args[i],
-            ) #aici inainte era input
-            #print("Testing for the input signal to this layer ", args[i].shape)
+            )
+
 
         # the simpler equivalent of get_signals
         outputs = []
@@ -452,7 +388,6 @@ def rotate_and_slice_parallel(
                 dim = model_adapter.hidden_size
 
 
-        #print(f"\n\ndim is:{dim}\n\n" )
 
         rotate_mlp_output(layer_adapter, Q)
         rotate_attention_output(layer_adapter, Q)
@@ -463,7 +398,6 @@ def rotate_and_slice_parallel(
 
         # it was output dimension
         layer.attn_shortcut_Q = layer.attn_shortcut_Q[:int(new_imp_emb_dimension), : dim]
-        #print("Testing for layer attn shortcut q ", layer.attn_shortcut_Q.shape)
         layer.to('cpu')
 
         # Run GC and cleanup GPU memory
@@ -614,43 +548,6 @@ def pca_calc(
     eig_val = X_eig[0][index]
     eigen_vec = X_eig[1][:, index]
 
-    #print(f"\n\n\nThe column mean is: {eigen_vec.mean(dim=0)}")
-    #print(f"The mean for each line is: {eigen_vec.mean(dim=1)}\n\n\n")
 
-
-    # Assuming eigen_vec is a NumPy array and you already have it converted to a PyTorch tensor
-    # Sample eigen_vec as a NumPy array (replace this with your actual eigen_vec)
-
-    '''
-    def compute_skewness(array):
-        mean = torch.mean(array)
-        diffs = array - mean
-        var = torch.mean(torch.pow(diffs, 2.0))
-        std = torch.pow(var, 0.5)
-        zscores = diffs / std
-        skews = torch.mean(torch.pow(zscores, 3.0))
-        return skews
-
-    def compute_coefficient_of_variation(array):
-        mean = torch.mean(torch.abs(array))
-        std = torch.std(torch.abs(array), dim=None)
-        cv = std / mean
-        print(f"\nThe std is: {std} and the mean is: {mean}\n")
-        return cv
-
-    # Compute skewness for each column (axis=0)
-    if metric_to_use == 1:
-        matrix_cv = compute_coefficient_of_variation(eigen_vec)
-    #else:
-       # matrix_cv = compute_skewness(torch.abs(eigen_vec)) # experiment matAbs
-        #matrix_cv = compute_skewness(eigen_vec)
-
-
-    #print(f"\n\n\nSkewness for each column2: {matrix_cv}")
-
-
-    condition_number = eig_val.max() / eig_val[eig_val > 0].min()
-    #print(condition_number)
-    '''
     return eig_val, eigen_vec
 

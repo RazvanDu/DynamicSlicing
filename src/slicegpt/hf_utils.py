@@ -9,10 +9,6 @@ from transformers import (
     AutoTokenizer,
     LlamaConfig,
     LlamaForCausalLM,
-    OPTConfig,
-    OPTForCausalLM,
-    PhiConfig,
-    PhiForCausalLM,
     PreTrainedTokenizerBase,
     MistralForCausalLM,
     MistralConfig,
@@ -22,17 +18,10 @@ from transformers import (
 
 from .adapters.llama_adapter import LlamaModelAdapter
 from .adapters.mistral_adapter import MistralModelAdapter
-from .adapters.opt_adapter import OPTModelAdapter
-from .adapters.phi2_adapter import Phi2ModelAdapter
 from .layernorm_fusion import fuse_modules, replace_layers
 from .model_adapter import ModelAdapter
 from .rotate import slice_rotated_model
 
-
-class UninitializedOPTForCausalLM(OPTForCausalLM):
-    def _init_weights(self, _) -> None:
-        # Prevent weight initialization
-        pass
 
 
 class UninitializedLlamaForCausalLM(LlamaForCausalLM):
@@ -41,21 +30,11 @@ class UninitializedLlamaForCausalLM(LlamaForCausalLM):
         pass
 
 
-class UninitializedPhiForCausalLM(PhiForCausalLM):
-    def _init_weights(self, _) -> None:
-        # Prevent weight initialization
-        pass
 
 class UninitializedMistralForCausalLM(MistralForCausalLM):
     def _init_weights(self, _) -> None:
         # Prevent weight initialization
         pass
-
-class UninitializedQwen2ForCausalLM(MistralForCausalLM):
-    def _init_weights(self, _) -> None:
-        # Prevent weight initialization
-        pass
-
 
 
 def skip(*args, **kwargs) -> None:
@@ -101,16 +80,8 @@ def get_model_and_tokenizer(
 
     logging.info(f"Loading {model_type} {model_path} model")
 
-    if "facebook/opt" in model_path:
-        if uninitialized:
-            config = OPTConfig.from_pretrained(model_path)
-            model = UninitializedOPTForCausalLM(config)
-            model = model.to(dtype=dtype)
-        else:
-            model = OPTForCausalLM.from_pretrained(model_path, torch_dtype=dtype)
-            model.config.torch_dtype = dtype
-        model_adapter = OPTModelAdapter(model)
-    elif "meta-llama" in model_path or "Llama-2" in model_path or "llama-2" in model_path:
+
+    if "meta-llama" in model_path:
         if uninitialized:
             config = LlamaConfig.from_pretrained(model_path, token=token)
             model = UninitializedLlamaForCausalLM(config)
@@ -124,19 +95,6 @@ def get_model_and_tokenizer(
         model.config.pad_token_id = tokenizer.pad_token_id
         model.resize_token_embeddings(len(tokenizer), pad_to_multiple_of=8)
         model_adapter = LlamaModelAdapter(model)
-    elif "microsoft/phi-2" in model_path:
-        if uninitialized:
-            config = PhiConfig.from_pretrained(model_path, token=token)
-            model = UninitializedPhiForCausalLM(config)
-            model = model.to(dtype=dtype)
-        else:
-            model = PhiForCausalLM.from_pretrained(model_path, torch_dtype=dtype, token=token)
-            model.config.torch_dtype = dtype
-
-        tokenizer.add_special_tokens({"pad_token": "<pad>"})  # Phi-2 models don't have a pad token by default
-        model.config.pad_token_id = tokenizer.pad_token_id
-        model.resize_token_embeddings(len(tokenizer), pad_to_multiple_of=8)
-        model_adapter = Phi2ModelAdapter(model)
 
     ### Mistral
     elif "mistralai" in model_path:
