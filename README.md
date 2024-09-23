@@ -11,7 +11,8 @@ This command will output the LR score presented in the paper.
 
 
 Next, we will run the second command, that will execute the experiments based on the cutting pattern provided by the previous script.
-Command: python3.11 mean_cut_accuracy_experiments.py --model 'model' --source-for-vector wikitext2 --cuda-device 'cuda_device' --dataset wikitext2 --tasks tasks --accuracy-limit acc_limit --vector-cut vec_cut --mean mean
+Command: python3.11 mean_cut_accuracy_experiments.py --model 'model' --source-for-vector wikitext2 --cuda-device 'cuda_device' --dataset wikitext2 --tasks 'tasks' --accuracy-limit 'acc_limit' --vector-cut 'vec_cut' --mean 'mean'
+
 The script has the following main parameters: 
 -model (must match the model parameter from the previous script)
 -cuda-device: the particular GPU, or CPU, that we want to run the experiment on
