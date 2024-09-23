@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from accelerate import dispatch_model, infer_auto_device_map
 from accelerate.utils import get_balanced_memory
+from torch import Tensor
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -16,9 +17,7 @@ from .model_adapter import ModelAdapter
 
 
 @torch.no_grad()
-def evaluate_ppl(
-    model: torch.nn.Module, pad_token_id: int | None, testloader: DataLoader[dict[str, torch.Tensor]]
-) -> float:
+def evaluate_ppl(model_adapter: ModelAdapter, testloader: DataLoader[Tensor]) -> float:
     """
     Evaluate the model's perplexity on the test set using batch processing.
     It is expected that model is already on the correct device.
@@ -27,12 +26,9 @@ def evaluate_ppl(
 
     start_time = time.time()
 
-    model.eval()
+    model_adapter.model.eval()
 
-    if pad_token_id:
-        loss_fn = torch.nn.CrossEntropyLoss(reduction="none", ignore_index=pad_token_id)
-    else:
-        loss_fn = torch.nn.CrossEntropyLoss(reduction="none")
+    loss_fn = torch.nn.CrossEntropyLoss(reduction="none", ignore_index=model_adapter.model.config.pad_token_id)
 
     nlls = []
 
@@ -40,7 +36,7 @@ def evaluate_ppl(
     for batch in testloader:
         logging.debug(f"Evaluating batch {len(nlls)}")
         batch = utils.map_tensors(batch, config.device)
-        logits = model(**batch).logits
+        logits = model_adapter.model(**batch).logits
 
         # shift outputs and labels autoregressively.
         logits = logits[:, :-1, :]

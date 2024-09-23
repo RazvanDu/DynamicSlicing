@@ -43,24 +43,21 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model",
         type=str,
-        default="facebook/opt-125m",
-        help="Model to fine-tune",
-    )
-    path_group = parser.add_mutually_exclusive_group()
-    path_group.add_argument(
-        "--model-path",
-        type=str,
-        default=None,
-        help="Path to load the model and tokenizer from (required for local models, not required for HF models)",
-    )
-    path_group.add_argument(
-        "--sliced-model-path",
-        type=str,
-        help="Path to load the model to fine-tune (sliced) and tokenizer from",
-        default=None,
+        help="model to lead",
+        choices=[
+            # LLAMAmodels
+            'meta-llama/Meta-Llama-3-8B',
+            # mistral
+            'mistralai/Mistral-7B-v0.1',
+
+        ],
+        default="mistralai/Mistral-7B-v0.1",
     )
     parser.add_argument(
-        "--sparsity", type=float, default=0.0, help="A measure of how much slicing is applied (in the range [0, 1))"
+        "--model-path", type=str, help="Path to the model to fine-tune (sliced or dense)", required=True
+    )
+    parser.add_argument(
+        "--sparsity", type=float, required=True, help="A measure of how much slicing is applied (in the range [0, 1))"
     )
     parser.add_argument(
         "--method",
@@ -112,10 +109,7 @@ if __name__ == "__main__":
 
     # Add model-specific config options such as model type, model path and layers to fine-tune
     config_space['model'] = args.model
-    if args.model_path:
-        config_space['model-path'] = args.model_path
-    if args.sliced_model_path:
-        config_space['sliced-model-path'] = args.sliced_model_path
+    config_space['load-model-path'] = args.model_path
     config_space['sparsity'] = args.sparsity
     config_space['lora-target-option'] = choice(list(lora_target_map(args.model).keys()))
 
