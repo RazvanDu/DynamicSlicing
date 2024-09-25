@@ -21,16 +21,17 @@ class ShortHFModel():
             layers_path (str): String in dot notation demonstrating how to access layers of the model. Ex: "model.layers"
             (Optional) n_prune_layers (int): Number of layers to prune. Defaults to None.
         """
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name, token='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')
+        # Insert hf token
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, token='')
         self.tokenizer.pad_token = self.tokenizer.eos_token
-
-        cache_dir = '/mnt/razvandu/LayerAveraging/model_weights'
+        #choose the cache location
+        cache_dir = ''
 
         quantization_config_8bit = QuantoConfig(weights="int8")
 
         quantization_config_4bit = GPTQConfig(bits=4, tokenizer=self.tokenizer, dataset='wikitext2')
 
-        self.model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16, cache_dir=cache_dir, token='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')
+        self.model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16, cache_dir=cache_dir, token='')
         self.model.to("cuda:4")
         self.model.eval()
 

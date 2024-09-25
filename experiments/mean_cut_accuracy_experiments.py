@@ -106,9 +106,10 @@ with open(save_path, 'w') as file:
 
         string_tasks = ' '.join(args.tasks)
         #run the run_slice_gpt
+        #You will need to generate your token for the --hf-token variable
         command = (f"python3.11 run_slicegpt_perplexity.py --model {args.model} --save-dir "
                    f"/storage/paulclotan/SmartSliceGPT/save_work2 --sparsity 0.25 --no-wandb "
-                   f"--device {args.cuda_device} --hf-token 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 "
+                   f"--device {args.cuda_device} --hf-token  "
                    f"--vector-cut {adjusted_dimensions} --cal-dataset {args.dataset} --single-layer-cut 0 "
                    f"--tasks {string_tasks} --accuracy-limit {args.accuracy_limit}")
         command_to_run = shlex.split(command)

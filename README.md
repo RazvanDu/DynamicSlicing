@@ -2,13 +2,11 @@ This file contains a short tutorial on how to run the experiments presented in t
 
 There are 2 commands that need to be executed to successfully run the experiments.
 
-
 The first command is: python3.11 calculate_LR.py 'model_name'
 example: python3.11 calculate_LR.py mistralai/Mistral-7B-v0.1
 
 The model name needs to exactly match the name of the model as it is named in Huggingface.
 This command will output the LR score presented in the paper.
-
 
 Next, we will run the second command, that will execute the experiments based on the cutting pattern provided by the previous script.
 Command: python3.11 mean_cut_accuracy_experiments.py --model 'model' --source-for-vector wikitext2 --cuda-device 'cuda_device' --dataset wikitext2 --tasks 'tasks' --accuracy-limit 'acc_limit' --vector-cut 'vec_cut' --mean 'mean'

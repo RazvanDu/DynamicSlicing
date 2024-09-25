@@ -6,16 +6,14 @@ requires = ["setuptools>=42.0.0", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "transformercompression"
+name = "Change Is the Only Constant: Dynamic LLM Slicing based on Layer Redundancy"
 version = "0.0.1"
-description= "Implementation of methods for compressing transformers"
 authors = [
-    {name = "James Hensman"},
-    {name = "Max Croci"},
-    {name = "Saleh Ashkboos"},
-    {name = "Marcelo Gennari do Nascimento"},
-    {name = "Dmitry Kats"},
-    {name = "Pashmina Cameron"}
+    {name = "Razvan-Gabriel Dumitru"},
+    {name = "Paul Ioan Clotan"},
+    {name = "Vikas Yadav"},
+    {name = "Darius Peteleaza"},
+    {name = "Mihai Surdeanu"},
 ]
 readme = "README.md"
 requires-python = ">=3.10"
@@ -68,8 +66,6 @@ line_length = 120
 python_version = "3.10"
 disallow_untyped_defs = true
 
-# TODO: Consider adding this option on per-library basis:
-# https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-library-stubs-or-py-typed-marker
 ignore_missing_imports = true
 
 [tool.pylint.main]
