@@ -1,6 +1,6 @@
 # Dynamic Slicing
 
-DynamicSlicing is a repository for running experiments on model compression and evaluation, based on the methodology presented in our paper (https://arxiv.org/html/2411.03513v1).
+DynamicSlicing is a repository for running experiments on model compression and evaluation, based on the methodology presented in our paper (https://aclanthology.org/2024.findings-emnlp.579/).
 
 ## Getting Started
 
