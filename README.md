@@ -49,3 +49,32 @@ python3.11 mean_cut_accuracy_experiments.py --model mistralai/Mistral-7B-v0.1 --
 This codebase incorporates functionalities from the following repositories:
 1. [ShortGPT](https://github.com/sramshetty/ShortGPT)
 2. [Transformer Compression by Microsoft](https://github.com/microsoft/TransformerCompression)
+
+## Citation
+
+To cite the paper please use the following citation:
+
+### BibTeX
+```bash
+@inproceedings{dumitru-etal-2024-change,
+    title = "Change Is the Only Constant: Dynamic {LLM} Slicing based on Layer Redundancy",
+    author = "Dumitru, Razvan-Gabriel  and
+      Clotan, Paul Ioan  and
+      Yadav, Vikas  and
+      Peteleaza, Darius  and
+      Surdeanu, Mihai",
+    editor = "Al-Onaizan, Yaser  and
+      Bansal, Mohit  and
+      Chen, Yun-Nung",
+    booktitle = "Findings of the Association for Computational Linguistics: EMNLP 2024",
+    month = nov,
+    year = "2024",
+    address = "Miami, Florida, USA",
+    publisher = "Association for Computational Linguistics",
+    url = "https://aclanthology.org/2024.findings-emnlp.579",
+    pages = "9912--9920",
+    abstract = "This paper introduces a novel model compression approach through dynamic layer-specific pruning in Large Language Models (LLMs), enhancing the traditional methodology established by SliceGPT. By transitioning from constant to dynamic slicing, our method leverages the newly proposed Layer Redundancy (LR) score, which assesses how much change each layer changes its input by measuring the cosine similarity of the input to the output of the layer. We use this score to prune parts of individual layers based on redundancy in such a way that the average pruned percentage for all layers is a fixed value. We conducted extensive experiments using models like Llama3-8B and Mistral-7B on multiple datasets, evaluating different slicing bases and percentages to determine optimal configurations that balance efficiency and performance. Our findings show that our dynamic slicing approach not only maintains but, in many cases, enhances model performance compared to the baseline established by constant slicing methods. For instance, in several settings, we see performance improvements of up to 5{\%} over the SliceGPT baseline.Additionally, a perplexity decrease by as much as 7{\%} was observed across multiple benchmarks, validating the effectiveness of our method. The code, model weights, and datasets are open-sourced at - https://github.com/RazvanDu/DynamicSlicing",
+}
+
+```
+
