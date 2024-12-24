@@ -4,6 +4,7 @@
 import os
 
 os.environ["WANDB_SERVICE_WAIT"] = "300"
+#update path where the cache will be saved
 os.environ['TRANSFORMERS_CACHE'] = '/storage/paulclotan/SmartSliceGPT/models'
 
 import argparse

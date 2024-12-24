@@ -7,7 +7,7 @@ import os
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Run mean cut experiment with given parameters.')
-    parser.add_argument('--model', type=str, default='microsoft/phi-2', help='Model to use.')
+    parser.add_argument('--model', type=str, default='mistralai/Mistral-7B-v0.1', help='Model to use.')
     parser.add_argument('--source-for-vector', type=str, default='wikitext2', help='Source from where the vector-cut is taken from')
     parser.add_argument('--dataset', type=str, default='wikitext2', help='Dataset on which we evaluate.')
     parser.add_argument('--accuracy-limit', type=int, default=-1, help='The limit used in the evaluation of the results.')
@@ -36,6 +36,7 @@ cut_mean= args.mean
 
 model_name_save = args.model.replace("/", "-")
 
+#update the path where you want the results to be saved
 save_path = (f"/storage/paulclotan/SmartSliceGPT/experiments/experiment-output-folder/activation_accur_perp_results_{model_name_save}_"
              f"benchmark_limit_{args.accuracy_limit}_mean_{args.mean}.txt")
 os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -105,8 +106,10 @@ with open(save_path, 'w') as file:
         print(f"the adjusted dimensions are: {adjusted_dimensions}")
 
         string_tasks = ' '.join(args.tasks)
+
         #run the run_slice_gpt
         #You will need to generate your token for the --hf-token variable
+        #must update the --save-dir path 
         command = (f"python3.11 run_slicegpt_perplexity.py --model {args.model} --save-dir "
                    f"/storage/paulclotan/SmartSliceGPT/save_work2 --sparsity 0.25 --no-wandb "
                    f"--device {args.cuda_device} --hf-token  "

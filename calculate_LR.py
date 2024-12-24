@@ -9,13 +9,35 @@ from peft import (
     TaskType,
 )
 from transformers import default_data_collator, Trainer, TrainingArguments
-
+import argparse
 from short_hf import ShortHFModel
 
-device_id = 0
+def argparser() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--model",
+        type=str,
+        help="model to lead",
+        choices=[
+            # LLAMAmodels
+            'meta-llama/Meta-Llama-3-8B',
+            # mistral
+            'mistralai/Mistral-7B-v0.1',
 
+        ],
+        default="mistralai/Mistral-7B-v0.1",
+    )
+
+    args = parser.parse_args()
+    return args
+
+
+device_id = 0
+args = argparser()
+
+#introduce the path for your environment
 cache_dir_datasets = '/mnt/' + 'razvandu/LayerAveraging/datasets_' + str(device_id)
-model_name = 'mistralai/Mistral-7B-v0.1'
+model_name = args.model
 
 
 print("WORKING ON MODEL", model_name)
